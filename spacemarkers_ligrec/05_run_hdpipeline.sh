@@ -1,0 +1,1 @@
+nextflow run SpaceMarkers/nextflow/main_hd.nf --input samplesheet.csv --outdir out -resume -profile docker --max_memory 24GB --max_cpus 6

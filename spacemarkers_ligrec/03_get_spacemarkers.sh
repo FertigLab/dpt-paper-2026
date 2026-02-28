@@ -1,0 +1,3 @@
+git clone git@github.com:DeshpandeLab/SpaceMarkers.git
+cd SpaceMarkers
+git checkout 54dda5b0673a62fb1dd8a93784f47016fc1fade6

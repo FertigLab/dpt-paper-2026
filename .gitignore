@@ -1,0 +1,9 @@
+*.csv
+*.png
+*.svg
+work
+.DS_Store
+SpaceMarkers
+out
+.nextflow*
+__pycache__
