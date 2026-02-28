@@ -1,0 +1,3 @@
+doi,description,relevance,nsubjects,nsamples,ncells,btc_location,datatypes,author,btc_pi, btc_team
+https://doi.org/10.1158/1078-0432.CCR-24-2183,Single Cell RNAseq Pancreatic Cancer Atlas,DPT,,229,726107,s3://btc-external/10.1158/1078-0432.CCR-24-2183,scRNA,Ian M. Loveless et al,
+
