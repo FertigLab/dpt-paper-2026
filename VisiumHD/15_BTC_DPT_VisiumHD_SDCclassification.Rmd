@@ -1,0 +1,556 @@
+---
+title: "BTC DPT Visium HD Cohort - SDC Classification to EMT"
+author: "Meredith Wetzel"
+date: "2025-10-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.path = "15_figures/",
+  dev = "pdf")
+```
+
+```{r message=FALSE, warning=FALSE}
+rm(list = ls())
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(RColorBrewer)
+library(EnhancedVolcano)
+library(fgsea)
+library(DESeq2)
+library(DT)
+library(ggbiplot)
+library(reshape2)
+library(ggpubr)
+library(CoGAPS)
+library(SeuratDisk)
+source(file = "../../../stacked_props_function.R")
+options(future.globals.maxSize = 8000 * 1024^2)
+set.seed(1234)
+```
+
+```{r include=FALSE}
+obj.dir <- "/projects/btcpilot_visiumhd/objects/"
+```
+
+```{r}
+# load(file = paste0(obj.dir,"noHC2_merged_016um_cirroRCTD_seurObj_updated_VBannotCombined.rda"))
+load(file = paste0(obj.dir,"final_codeCheck/allSubtypes_fullObj_016um_seurObj.rda"))
+
+# names(sobj@images) <- unique(sobj$sample)
+sobj <- JoinLayers(sobj, assay = "Spatial.016um", layers = "data")
+```
+
+```{r}
+rctd.cols <- c('red','blue','green2','pink','yellow','orange','turquoise','purple','gold2','lightblue','lightgreen','magenta','tan','lightgrey')
+names(rctd.cols) <- c("ENDOTHELIAL","FIBROBLASTS","PDAC","MYELOID","PLASMA","PERICYTES","CYCLING MYELOID","ENDOCRINE","TNK","ACINAR","B CELLS","MAST","CYCLING TNK","NA")
+celltypes <- c("ENDOTHELIAL","FIBROBLASTS","PDAC","MYELOID","PLASMA","PERICYTES","CYCLING MYELOID","ENDOCRINE","TNK","ACINAR","B CELLS","MAST","CYCLING TNK","NA")
+
+sub.cols <- c("green4","blue2","maroon1","darkturquoise","mediumpurple1","orange")
+names(sub.cols) <- c("Basal","Classical","myCAF","iCAF","Intermediate","CAF")
+
+caf.type.color <- c("maroon1", "orange", "darkturquoise")
+names(caf.type.color) <- c("myCAF", "CAF", "iCAF")
+
+epi.type.color <- c("green4","blue2","mediumpurple1")
+names(epi.type.color) <- c("Basal","Classical","Intermediate")
+
+response.cols <- c(rgb(53,150,54,maxColorValue = 255),rgb(227,172,43,maxColorValue = 255)) # to match the SD colors/Andre's
+names(response.cols) <- c("non-responding","responding")
+
+```
+
+# Overall Cells Plot
+
+```{r fig.height=10, fig.width=15, warning=FALSE}
+SpatialDimPlot(sobj[,sobj$cell_type %in% celltypes], label = F, ncol = 3, pt.size.factor = 8, image.alpha = 0.5, group.by = "cell_type", cols = rctd.cols)
+```
+
+# Classifications - per spot
+
+```{r}
+# get SDC1 and SDC4 median (non-zero) cutoffs:
+# subset to just PDAC:
+Idents(sobj) <- "cell_type"
+sobj <- subset(sobj, idents = c("PDAC"))
+
+SDC1_exp <- sobj@assays$Spatial.016um@layers$data[rownames(sobj) == 'SDC1',] # normalized data
+sobj$SDC1_exp <- SDC1_exp
+
+SDC4_exp <- sobj@assays$Spatial.016um@layers$data[rownames(sobj) == 'SDC4',]
+sobj$SDC4_exp <- SDC4_exp
+
+median(SDC1_exp[SDC1_exp != 0])
+median(SDC4_exp[SDC4_exp != 0])
+
+# per spot - using spot median
+cutoff <- median(SDC1_exp[SDC1_exp != 0])
+print(paste0("Median, non-zero, expression of SDC1 for PDAC cells: ", cutoff))
+
+sobj$SDC1_class <- sapply(sobj$SDC1_exp, function (x){
+  if(x >= cutoff){
+    return("SDC1_hi")
+  }
+  if(x < cutoff){
+    return("SDC1_lo")
+  }
+})
+
+cutoff <- median(SDC4_exp[SDC4_exp != 0])
+print(paste0("Median, non-zero, expression of SDC4 for PDAC cells: ", cutoff))
+
+sobj$SDC4_class <- sapply(sobj$SDC4_exp, function (x){
+  if(x >= cutoff){
+    return("SDC4_hi")
+  }
+  if(x < cutoff){
+    return("SDC4_lo")
+  }
+})
+
+table(sobj$SDC1_class, sobj$CODA)
+table(sobj$SDC4_class, sobj$CODA)
+
+table(sobj$SDC1_class, sobj$sample)
+table(sobj$SDC4_class, sobj$sample)
+
+sobj$sampleCODA <- paste0(sobj$sample,"_",sobj$CODA)
+
+table(sobj$SDC1_class, sobj$sampleCODA)
+table(sobj$SDC4_class, sobj$sampleCODA)
+
+```
+
+```{r fig.height=10, fig.width=15}
+class.cols <- c("gold","navy","gold","navy")
+names(class.cols) <- c("SDC1_hi","SDC1_lo","SDC4_hi","SDC4_lo")
+
+SpatialDimPlot(sobj, group.by = "SDC1_class", pt.size.factor = 7, ncol = 3, cols = class.cols)
+SpatialDimPlot(sobj, group.by = "SDC4_class", pt.size.factor = 7, ncol = 3, cols = class.cols)
+```
+
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+# EMT module score needs to be added
+HALLMARK <- gmtPathways("../../../h.all.v2023.2.Hs.symbols.gmt")
+for(i in seq_along(names(HALLMARK))){
+  path <- names(HALLMARK[i])
+  genes <- HALLMARK[i]
+  sobj <- AddModuleScore(sobj, features = genes, name = path)
+}
+```
+
+# SDC1
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC1_hi","SDC1_lo"))
+plot_list_SDC1 <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj, features = path, group.by = "SDC1_class", cols = class.cols, pt.size = 0) + geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "t.test", comparisons = comparisons, paired = FALSE) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
+  plot_list_SDC1[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC1[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# SDC4
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC4_hi","SDC4_lo"))
+plot_list_SDC4 <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj, features = path, group.by = "SDC4_class", cols = class.cols, pt.size = 0) + geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "t.test", comparisons = comparisons, paired = FALSE) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
+  plot_list_SDC4[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC4[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# split response plots
+
+# SDC1
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC1_hi","SDC1_lo"))
+plot_list_SDC1 <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj, features = path, group.by = "SDC1_class", split.by = "responseType", pt.size = 0, cols = response.cols) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))
+  plot_list_SDC1[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC1[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# SDC4
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC4_hi","SDC4_lo"))
+plot_list_SDC4 <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj, features = path, group.by = "SDC4_class", pt.size = 0, split.by = "responseType", cols = response.cols)+ theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))
+  plot_list_SDC4[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC4[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# Aggregated (BULK) cutoff/classification
+
+```{r}
+#aggregate based on sample and CODA annot
+bulk_sobj <- AggregateExpression(sobj, assays = "Spatial.016um", return.seurat = T, group.by = c('sample','cell_type'))
+info <- bulk_sobj@meta.data
+```
+
+```{r}
+#create column for SDC1 expression
+SDC1_exp_bulk <- bulk_sobj@assays$Spatial.016um$data[rownames(bulk_sobj) == 'SDC1',]
+bulk_sobj$SDC1_exp_bulk <- SDC1_exp_bulk
+
+SDC4_exp_bulk <- bulk_sobj@assays$Spatial.016um$data[rownames(bulk_sobj) == 'SDC4',]
+bulk_sobj$SDC4_exp_bulk <- SDC4_exp_bulk
+```
+
+```{r}
+cutoff <- median(SDC1_exp_bulk[SDC1_exp_bulk != 0])
+print(paste0("Median, non-zero, expression of SDC1 for PDAC cells in bulk: ", cutoff))
+```
+
+```{r}
+### ADD CLASSIFICATIONS to Seurat Object using BULK cutoff
+sobj$SDC1_class_bulk <- sapply(sobj$SDC1_exp, function (x){
+  if(x >= cutoff){
+    return("SDC1_hi")
+  }
+  if(x < cutoff){
+    return("SDC1_lo")
+  }
+})
+```
+
+```{r}
+cutoff <- median(SDC4_exp_bulk[SDC4_exp_bulk != 0])
+print(paste0("Median, non-zero, expression of SDC4 for PDAC cells in bulk: ", cutoff))
+```
+
+```{r}
+### ADD CLASSIFICATIONS to Seurat Object using BULK cutoff
+sobj$SDC4_class_bulk <- sapply(sobj$SDC4_exp, function (x){
+  if(x >= cutoff){
+    return("SDC4_hi")
+  }
+  if(x < cutoff){
+    return("SDC4_lo")
+  }
+})
+```
+
+```{r fig.height=10, fig.width=15}
+SpatialDimPlot(sobj, group.by = "SDC1_class_bulk", pt.size.factor = 7, ncol = 3, cols = class.cols)
+SpatialDimPlot(sobj, group.by = "SDC4_class_bulk", pt.size.factor = 7, ncol = 3, cols = class.cols)
+```
+
+
+# SDC1 bulk
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC1_hi","SDC1_lo"))
+plot_list_SDC1_bulk <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj, features = path, group.by = "SDC1_class_bulk", cols = class.cols, pt.size = 0) + geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "t.test", comparisons = comparisons, paired = FALSE) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
+  plot_list_SDC1_bulk[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC1_bulk[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# SDC4 bulk
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC4_hi","SDC4_lo"))
+plot_list_SDC4_bulk <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj, features = path, group.by = "SDC4_class_bulk", cols = class.cols, pt.size = 0) + geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "t.test", comparisons = comparisons, paired = FALSE) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
+  plot_list_SDC4_bulk[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC4_bulk[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# split response plots
+
+# SDC1
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC1_hi","SDC1_lo"))
+plot_list_SDC1_bulk <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj, features = path, group.by = "SDC1_class_bulk", split.by = "responseType", pt.size = 0, cols = response.cols) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))
+  plot_list_SDC1_bulk[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC1_bulk[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# SDC4
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC4_hi","SDC4_lo"))
+plot_list_SDC4_bulk <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj, features = path, group.by = "SDC4_class_bulk", pt.size = 0, split.by = "responseType", cols = response.cols)+ theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))
+  plot_list_SDC4_bulk[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC4_bulk[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# Plot correlation of SDC Expression vs EMT MS
+
+# SDC1
+
+# Responding
+
+```{r warning=FALSE}
+# subset object to just responding
+sobj.responding <- subset(sobj, responseType == "responding")
+meta <- sobj.responding@meta.data
+```
+
+# stat split plots
+# SDC1
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC1_hi","SDC1_lo"))
+plot_list_SDC1_R <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj.responding, features = path, group.by = "SDC1_class", pt.size = 0, cols = class.cols)+ geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "wilcox.test", comparisons = comparisons, paired = FALSE) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
+  plot_list_SDC1_R[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC1_R[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# SDC1 - bulk
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC1_hi","SDC1_lo"))
+plot_list_SDC1_bulk_R <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj.responding, features = path, group.by = "SDC1_class_bulk", pt.size = 0, cols = class.cols)+ geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "wilcox.test", comparisons = comparisons, paired = FALSE) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
+  plot_list_SDC1_bulk_R[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC1_bulk_R[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# calculate spearman correlation
+```{r}
+cor_test <- cor.test(meta[["SDC1_exp"]], meta[['HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1']], method = "spearman") # or "pearson"
+cor_test
+```
+# Plot correlation (with stats)
+```{r fig.height=4, fig.width=6}
+ggplot(meta, aes_string(x = 'SDC1_exp', y = 'HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1')) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red") +
+  labs(
+    x = "SDC1 Expression",
+    y = "EMT Module Score",
+    title = paste0(
+      "SDC1 vs EMT Module Score",
+      " (r = ", round(cor_test$estimate, 2),
+      ", p = ", signif(cor_test$p.value, 3), ") in Responding PDAC"
+    )
+  ) +
+  theme_minimal() + theme(title = element_text(size = 8))
+```
+
+```{r}
+VlnPlot(sobj, features = "SDC1", group.by = "responseType")
+```
+
+# Non-Responding
+
+```{r warning=FALSE}
+# subset object to just responding
+sobj.NONresponding <- subset(sobj, responseType == "non-responding")
+meta <- sobj.NONresponding@meta.data
+```
+
+# SDC1
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC1_hi","SDC1_lo"))
+plot_list_SDC1_NR <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj.NONresponding, features = path, group.by = "SDC1_class", pt.size = 0, cols = class.cols)+ geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "wilcox.test", comparisons = comparisons, paired = FALSE) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
+  plot_list_SDC1_NR[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC1_NR[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# SDC1 - bulk
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC1_hi","SDC1_lo"))
+plot_list_SDC1_bulk_NR <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj.NONresponding, features = path, group.by = "SDC1_class_bulk", pt.size = 0, cols = class.cols)+ geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "wilcox.test", comparisons = comparisons, paired = FALSE) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
+  plot_list_SDC1_bulk_NR[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC1_bulk_NR[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# calculate spearman correlation
+```{r}
+cor_test <- cor.test(meta[["SDC1_exp"]], meta[['HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1']], method = "spearman") # or "pearson"
+cor_test
+```
+# Plot correlation (with stats)
+```{r fig.height=4, fig.width=6}
+ggplot(meta, aes_string(x = 'SDC1_exp', y = 'HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1')) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red") +
+  labs(
+    x = "SDC1 Expression",
+    y = "EMT Module Score",
+    title = paste0(
+      "SDC1 vs EMT Module Score",
+      " (r = ", round(cor_test$estimate, 2),
+      ", p = ", signif(cor_test$p.value, 3), ") in Non-Responding PDAC"
+    )
+  ) +
+  theme_minimal() + theme(title = element_text(size = 8))
+```
+
+```{r}
+
+```
+
+# SDC4
+
+# Responding
+
+```{r warning=FALSE}
+# subset object to just responding
+sobj.responding <- subset(sobj, responseType == "responding")
+meta <- sobj.responding@meta.data
+```
+
+# SDC4
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC4_hi","SDC4_lo"))
+plot_list_SDC4_R <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj.responding, features = path, group.by = "SDC4_class", pt.size = 0, cols = class.cols)+ geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "wilcox.test", comparisons = comparisons, paired = FALSE) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
+  plot_list_SDC4_R[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC4_R[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# SDC4 - bulk
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC4_hi","SDC4_lo"))
+plot_list_SDC4_bulk_R <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj.responding, features = path, group.by = "SDC4_class_bulk", pt.size = 0, cols = class.cols)+ geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "wilcox.test", comparisons = comparisons, paired = FALSE) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
+  plot_list_SDC4_bulk_R[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC4_bulk_R[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# calculate spearman correlation
+```{r}
+cor_test <- cor.test(meta[["SDC4_exp"]], meta[['HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1']], method = "spearman") # or "pearson"
+cor_test
+```
+# Plot correlation (with stats)
+```{r fig.height=4, fig.width=6}
+ggplot(meta, aes_string(x = 'SDC4_exp', y = 'HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1')) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red") +
+  labs(
+    x = "SDC4 Expression",
+    y = "EMT Module Score",
+    title = paste0(
+      "SDC4 vs EMT Module Score",
+      " (r = ", round(cor_test$estimate, 2),
+      ", p = ", signif(cor_test$p.value, 3), ") in Responding PDAC"
+    )
+  ) +
+  theme_minimal() + theme(title = element_text(size = 8))
+```
+
+```{r}
+VlnPlot(sobj, features = "SDC4", group.by = "responseType")
+```
+
+# Non-Responding
+
+```{r warning=FALSE}
+# subset object to just responding
+sobj.NONresponding <- subset(sobj, responseType == "non-responding")
+meta <- sobj.NONresponding@meta.data
+```
+
+# SDC4
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC4_hi","SDC4_lo"))
+plot_list_SDC4_NR <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj.NONresponding, features = path, group.by = "SDC4_class", pt.size = 0, cols = class.cols)+ geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "wilcox.test", comparisons = comparisons, paired = FALSE) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
+  plot_list_SDC4_NR[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC4_NR[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# SDC4 - bulk
+```{r fig.height=5, fig.width=5, message=FALSE, warning=FALSE}
+comparisons <- list(c("SDC4_hi","SDC4_lo"))
+plot_list_SDC4_bulk_NR <- list()
+for(i in seq_along(names(HALLMARK))){
+  path <- paste0(names(HALLMARK[i]),"1")
+  p <- VlnPlot(sobj.NONresponding, features = path, group.by = "SDC4_class_bulk", pt.size = 0, cols = class.cols)+ geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "wilcox.test", comparisons = comparisons, paired = FALSE) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
+  plot_list_SDC4_bulk_NR[[path]] <- p
+  #print(p)
+}# these stats/pvalues are NOT adjusted
+plot_list_SDC4_bulk_NR[["HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1"]]
+```
+
+# calculate spearman correlation
+```{r}
+cor_test <- cor.test(meta[["SDC4_exp"]], meta[['HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1']], method = "spearman") # or "pearson"
+cor_test
+```
+# Plot correlation (with stats)
+```{r fig.height=4, fig.width=6}
+ggplot(meta, aes_string(x = 'SDC4_exp', y = 'HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION1')) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red") +
+  labs(
+    x = "SDC4 Expression",
+    y = "EMT Module Score",
+    title = paste0(
+      "SDC4 vs EMT Module Score",
+      " (r = ", round(cor_test$estimate, 2),
+      ", p = ", signif(cor_test$p.value, 3), ") in Non-Responding PDAC"
+    )
+  ) +
+  theme_minimal() + theme(title = element_text(size = 8))
+```
+
+```{r}
+sessionInfo()
+```

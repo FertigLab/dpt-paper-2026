@@ -1,0 +1,118 @@
+---
+title: "Preprocessing BTC DPT Visium HD Cohort (016um Bins)"
+author: "Meredith Wetzel"
+date: "2025-01-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Libraries
+For VisiumHD you must have Seurat Version 5.1 to appropriately load data
+```{r message=FALSE, warning=FALSE}
+rm(list = ls())
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+options(future.globals.maxSize = 8000 * 1024^2)
+set.seed(1234)
+```
+
+```{r include=FALSE}
+datadir <- "/Users/meredithwetzel/OneDrive - Johns Hopkins/spaceranger/"
+objdir <- "/Users/meredithwetzel/Library/CloudStorage/OneDrive-JohnsHopkins/BTC_DPT_Pilot/objects/"
+plotsdir <- "/Users/meredithwetzel/OneDrive - Johns Hopkins/BTC_DPT_Pilot/plots/"
+# for sharing/publishing
+# datadir <- "../spaceranger/"
+# objdir <- "/projects/btcpilot_visiumhd/objects/final_codeCheck/"
+# plotsdir <- "/projects/btcpilot_visiumhd/plots/final_codeCheck/"
+```
+
+```{r}
+localdir <- paste0(datadir,"HC1")
+sobj <- Load10X_Spatial(data.dir = localdir, bin.size = c(16))
+sobj$sample <- "HC1"
+```
+
+```{r}
+# Setting default assay changes between 8um and 16um binning
+Assays(sobj)
+DefaultAssay(sobj) <- "Spatial.016um"
+Idents(sobj) <- "sample"
+vln.plot <- VlnPlot(sobj, features = "nCount_Spatial.016um", pt.size = 0) + theme(axis.text = element_text(size = 4)) + NoLegend()
+count.plot <- SpatialFeaturePlot(sobj, features = "nCount_Spatial.016um", pt.size.factor = 8) + theme(legend.position = "right")
+
+vln.plot | count.plot
+
+sobj$percent.mt <- PercentageFeatureSet(object = sobj, pattern = "^MT-")
+SpatialFeaturePlot(sobj, features = "percent.mt", pt.size.factor = 8)
+```
+
+# Normalize Data
+```{r}
+DefaultAssay(sobj) <- "Spatial.016um"
+sobj <- NormalizeData(sobj)
+# save unclustered object
+saveRDS(sobj, file = paste0(objdir,"HC1_016um_seurObj.RDS"))
+```
+
+```{r}
+
+```
+
+# Loop through samples for preprocessing
+
+```{r}
+# sample IDs to loop through
+samples <- paste0("HC", 1:8) # we ended up removing samples HC2 and HC6 from analysis due to low quality
+for (s in samples) {
+  message("Processing ", s, "...")
+
+  # load in data/spaceranger
+  localdir <- file.path(datadir, s)
+  sobj <- Load10X_Spatial(data.dir = localdir, bin.size = 16)
+
+  # add sample metadata
+  sobj$sample <- s
+
+  DefaultAssay(sobj) <- "Spatial.016um"
+  Idents(sobj) <- "sample"
+
+  # plot QC metrics per sample
+  vln.plot <- VlnPlot(
+    sobj, features = "nCount_Spatial.016um", pt.size = 0
+  ) + theme(axis.text = element_text(size = 4)) + NoLegend()
+  count.plot <- SpatialFeaturePlot(
+    sobj, features = "nCount_Spatial.016um", pt.size.factor = 8
+  ) + theme(legend.position = "right")
+  print(vln.plot | count.plot)
+
+  # mitochondrial %
+  sobj$percent.mt <- PercentageFeatureSet(sobj, pattern = "^MT-")
+  print(SpatialFeaturePlot(sobj, features = "percent.mt", pt.size.factor = 8))
+
+  # normalize and save object for downstream
+  sobj <- NormalizeData(sobj)
+  saveRDS(sobj, file = file.path(objdir, paste0(s, "_016um_seurObj.RDS")))
+}
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+# sessionInfo
+```{r}
+sessionInfo()
+```

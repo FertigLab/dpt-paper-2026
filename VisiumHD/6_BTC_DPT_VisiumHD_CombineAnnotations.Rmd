@@ -1,0 +1,261 @@
+---
+title: "BTC DPT Visium HD Cohort - Combine CAF and Epithelial Annotations"
+author: "Meredith Wetzel"
+date: "2025-07-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.path = "6_figures/",
+  dev = "pdf")
+```
+
+```{r message=FALSE, warning=FALSE}
+rm(list = ls())
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(RColorBrewer)
+library(EnhancedVolcano)
+library(fgsea)
+library(DESeq2)
+library(DT)
+library(ggbiplot)
+library(reshape2)
+library(ggpubr)
+library(CoGAPS)
+library(SeuratDisk)
+source(file = "../../../stacked_props_function.R")
+options(future.globals.maxSize = 8000 * 1024^2)
+set.seed(1234)
+```
+
+```{r include=FALSE}
+obj.dir <- "/projects/btcpilot_visiumhd/objects/"
+#obj.dir <- "/projects/btcpilot_visiumhd/objects/codeCheck/"
+```
+
+```{r}
+# load in data
+# full object
+# load(file = paste0(obj.dir,"merged_016um_seurObj_updated.rda"))
+load(file = paste0(obj.dir,"final_codeCheck/merged_annotated_016um_seurObj.rda")) 
+
+# load(file = paste0(obj.dir,"noHC2_merged_016um_cirroRCTD_seurObj_updated.rda")) # original
+# EPIsubtypes_016um_seurObj.rda
+# CAFsubtypes_016um_seurObj.rda
+# subtyped objects
+# load(file = paste0(obj.dir,"EPIsubtypes_016um_seurObj.rda"))
+# load(file = paste0(obj.dir,"CAFsubtypes_016um_seurObj.rda"))
+
+load(file = paste0(obj.dir,"final_codeCheck/CAFsubtypes_016um_seurObj.rda"))
+load(file = paste0(obj.dir,"final_codeCheck/PDACsubtypes_016um_seurObj.rda"))
+
+# load(file = paste0(obj.dir,"Vince_bothSubtypes_016um_seurObj.rda")) # original
+# load(file = paste0(obj.dir,"noHC2_noPTPRC_bothSubtypes_CAF_016um_seurObj.rda")) # original
+# names(sobj.epi@images) <- unique(sobj.epi$sample)
+# names(sobj@images) <- unique(sobj$sample)
+# names(sobj.caf@images) <- unique(sobj.caf$sample)
+# update annots for response:
+sobj$responseType[sobj$responseType == 'NR'] <- 'non-responding'
+sobj$responseType[sobj$responseType == 'R'] <- 'responding'
+```
+
+<!-- ```{r warning=FALSE} -->
+<!-- # need to remove the PTPRC CAF bins from the whole object (since they are already removed from the CAF object) -->
+<!-- # Identify cells to filter within -->
+<!-- subset_cells <- WhichCells(sobj, expression = cell_type_rctd == "FIBROBLASTS") -->
+<!-- # identify cells that meet removal condition -->
+<!-- cells_to_remove <- WhichCells(sobj, cells = subset_cells, expression = PTPRC > 2) -->
+<!-- # Subset the Seurat object to exclude just those cells -->
+<!-- sobj <- subset(sobj, cells = setdiff(Cells(sobj), cells_to_remove)) -->
+<!-- ``` -->
+
+```{r}
+#sanity check
+SpatialDimPlot(sobj, label = F, ncol = 3, pt.size.factor = 8, image.alpha = 0.5, group.by = "sample")
+SpatialDimPlot(sobj, label = F, ncol = 3, pt.size.factor = 8, image.alpha = 0.5, group.by = "responseType")
+```
+
+```{r eval=FALSE, include=FALSE}
+names(sobj.caf@meta.data)
+names(sobj.epi@meta.data)
+names(sobj@meta.data)
+```
+
+# Add labels from subsetted objects to whole
+```{r}
+# cafs
+ind = match(rownames(sobj.caf@meta.data), rownames(sobj@meta.data))
+sobj@meta.data[ind, "Type_CAF"] = as.character(sobj.caf@meta.data[, "Type_CAF"])
+```
+
+```{r}
+# epithelial
+ind = match(rownames(sobj.epi@meta.data), rownames(sobj@meta.data))
+sobj@meta.data[ind, "Type"] = as.character(sobj.epi@meta.data[, "Type"])
+```
+
+# combine all subtype annotations together
+```{r}
+sobj$all_subtypes <- ifelse(
+  !is.na(sobj$Type), sobj$Type,
+  ifelse(
+    !is.na(sobj$Type_CAF), sobj$Type_CAF,
+    sobj$Type_CAF
+  )
+)
+```
+
+# now map both subtype annotations back to full object
+```{r}
+ind = match(rownames(sobj@meta.data), rownames(sobj@meta.data))
+sobj@meta.data[ind, "all_subtypes"] = as.character(sobj@meta.data[, "all_subtypes"])
+```
+
+<!-- # save object for sharing -->
+
+<!-- ```{r} -->
+<!-- #save(sobj, file = paste0(obj.dir,"whole_016um_cirroRCTD_allSubtypes_seurObj_updated_VinceClass.rda")) -->
+<!-- ``` -->
+
+# RCTD props without unannotated bins
+
+```{r}
+# # sobj.epi <- subset(sobj.epi, subset = cell_type_rctd != "")
+# rctd.cols <- c('red','blue','green2','brown','pink','yellow','orange','turquoise','purple','gold2','lightblue','lightgreen','magenta','tan','lightgrey')
+# names(rctd.cols) <- c("ENDOTHELIAL","FIBROBLASTS","CYCLING DUCTAL","DUCTAL","MYELOID","PLASMA","PERICYTES","CYCLING. MYELOID","ENDOCRINE","TNK","ACINAR","B CELLS","MAST","CYCLING TNK","NA")
+# celltypes <- c("ENDOTHELIAL","FIBROBLASTS","CYCLING DUCTAL","DUCTAL","MYELOID","PLASMA","PERICYTES","CYCLING. MYELOID","ENDOCRINE","TNK","ACINAR","B CELLS","MAST","CYCLING TNK","NA")
+
+
+rctd.cols <- c('red','blue','green2','pink','yellow','orange','turquoise','purple','gold2','lightblue','lightgreen','magenta','tan','lightgrey')
+names(rctd.cols) <- c("ENDOTHELIAL","FIBROBLASTS","PDAC","MYELOID","PLASMA","PERICYTES","CYCLING MYELOID","ENDOCRINE","TNK","ACINAR","B CELLS","MAST","CYCLING TNK","NA")
+celltypes <- c("ENDOTHELIAL","FIBROBLASTS","PDAC","MYELOID","PLASMA","PERICYTES","CYCLING MYELOID","ENDOCRINE","TNK","ACINAR","B CELLS","MAST","CYCLING TNK","NA")
+```
+
+```{r warning=FALSE}
+for(i in seq_along(Images(sobj))){
+  panel = Images(sobj)[i]
+  p = SpatialDimPlot(sobj[,sobj$cell_type %in% celltypes], group.by = "cell_type", pt.size.factor = 8, images = panel, image.alpha = 0.5, cols = rctd.cols) + ggtitle(panel)
+  print(p)
+}
+```
+
+```{r fig.height=10, fig.width=15, warning=FALSE}
+SpatialDimPlot(sobj[,sobj$cell_type %in% celltypes], label = F, ncol = 3, pt.size.factor = 8, image.alpha = 0.5, group.by = "cell_type", cols = rctd.cols)
+```
+
+# Barplots of ALL cell types by sample and response
+
+```{r all cell type stack, fig.height=4, fig.width=5}
+props <- stack_cell_porportions(sobj[,sobj$cell_type %in% celltypes], group.by.x = "sample",group.by.stack = "cell_type")
+plot_stack(props, group.by.x = "sample",group.by.stack = "cell_type") + scale_fill_manual(values = rctd.cols)
+```
+
+```{r response all cell type stack, fig.height=5, fig.width=5}
+props <- stack_cell_porportions(sobj[,sobj$cell_type %in% celltypes], group.by.x = "responseType",group.by.stack = "cell_type")
+plot_stack(props, group.by.x = "responseType",group.by.stack = "cell_type") + scale_fill_manual(values = rctd.cols)
+```
+
+# Subtypes
+
+```{r fig.height=10, fig.width=15, warning=FALSE}
+sub.cols <- c("green4","blue2","maroon1","darkturquoise","mediumpurple1","orange")
+names(sub.cols) <- c("Basal","Classical","myCAF","iCAF","Intermediate","CAF")
+
+SpatialDimPlot(sobj[,sobj$cell_type %in% c('PDAC','FIBROBLASTS')], label = F, ncol = 3, pt.size.factor = 8, image.alpha = 0.5, group.by = "all_subtypes", cols = sub.cols)
+```
+
+```{r warning=FALSE}
+for(i in seq_along(Images(sobj))){
+  panel = Images(sobj)[i]
+  p = SpatialDimPlot(sobj[,sobj$cell_type %in% c('PDAC','FIBROBLASTS')], group.by = "all_subtypes", pt.size.factor = 8, images = panel, image.alpha = 0.5, cols = sub.cols) + ggtitle(panel)
+  print(p)
+}
+```
+
+```{r fig.height=4, fig.width=5, warning=FALSE}
+props <- stack_cell_porportions(sobj[,sobj$cell_type %in% c("FIBROBLASTS","PDAC")], group.by.x = "sample",group.by.stack = "all_subtypes")
+plot_stack(props, group.by.x = "sample",group.by.stack = "all_subtypes") + scale_fill_manual(values = sub.cols)
+```
+
+```{r fig.height=4, fig.width=4, warning=FALSE}
+props <- stack_cell_porportions(sobj[,sobj$cell_type %in% c("FIBROBLASTS","PDAC")], group.by.x = "responseType",group.by.stack = "all_subtypes")
+plot_stack(props, group.by.x = "responseType",group.by.stack = "all_subtypes") + scale_fill_manual(values = sub.cols)
+```
+
+# CAF only
+
+```{r fig.height=4, fig.width=5}
+type.color <- c("maroon1", "orange", "darkturquoise")
+names(type.color) <- c("myCAF", "CAF", "iCAF")
+
+props <- stack_cell_porportions(sobj[,sobj$cell_type == "FIBROBLASTS"], group.by.x = "sample",group.by.stack = "Type_CAF")
+plot_stack(props, group.by.x = "sample",group.by.stack = "Type_CAF") + scale_fill_manual(values = type.color)
+```
+
+```{r fig.height=4, fig.width=4}
+props <- stack_cell_porportions(sobj[,sobj$cell_type == "FIBROBLASTS"], group.by.x = "responseType",group.by.stack = "all_subtypes")
+plot_stack(props, group.by.x = "responseType",group.by.stack = "all_subtypes") + scale_fill_manual(values = sub.cols)
+```
+
+# Epi only
+
+```{r fig.height=4, fig.width=5}
+props <- stack_cell_porportions(sobj[,sobj$cell_type %in% c("PDAC")], group.by.x = "sample",group.by.stack = "all_subtypes")
+plot_stack(props, group.by.x = "sample",group.by.stack = "all_subtypes") + scale_fill_manual(values = sub.cols)
+```
+
+```{r fig.height=4, fig.width=4}
+props <- stack_cell_porportions(sobj[,sobj$cell_type %in% c("PDAC")], group.by.x = "responseType",group.by.stack = "all_subtypes")
+plot_stack(props, group.by.x = "responseType",group.by.stack = "all_subtypes") + scale_fill_manual(values = sub.cols)
+```
+
+
+<!-- ```{r} -->
+<!-- # load(file = paste0(obj.dir,"noHC2_merged_016um_cirroRCTD_seurObj_updated_VBannotCombined.rda")) -->
+<!-- ``` -->
+
+<!-- # Add another column with the broad annotations - don't need this with the new RCTD annotations -->
+
+<!-- ```{r} -->
+<!-- # add overall CAF and PDAC annotations -->
+<!-- sobj@meta.data <- sobj@meta.data %>%  -->
+<!--   mutate(broad_celltype =  -->
+<!--            ifelse(all_subtypes == "myCAF", "CAF", -->
+<!--             ifelse(all_subtypes == "iCAF", "CAF", -->
+<!--             ifelse(all_subtypes == "CAF", "CAF", -->
+<!--             ifelse(all_subtypes == "Basal", "PDAC", -->
+<!--             ifelse(all_subtypes == "Classical", "PDAC", -->
+<!--             ifelse(all_subtypes == "Intermediate", "PDAC", -->
+<!--             all_subtypes))))))) -->
+<!-- ``` -->
+
+<!-- ```{r fig.height=10, fig.width=15, warning=FALSE} -->
+<!-- sub.cols <- c("green4","blue2","maroon1","darkturquoise","mediumpurple1","orange") -->
+<!-- names(sub.cols) <- c("Basal","Classical","myCAF","iCAF","Intermediate","CAF") -->
+
+<!-- SpatialDimPlot(sobj[,sobj$cell_type %in% c('PDAC','FIBROBLASTS')], label = F, ncol = 3, pt.size.factor = 8, image.alpha = 0.5, group.by = "all_subtypes", cols = sub.cols) -->
+<!-- ``` -->
+
+<!-- ```{r fig.height=10, fig.width=15, warning=FALSE} -->
+<!-- broad.cols <- c("red","lightblue3") -->
+<!-- names(broad.cols) <- c("PDAC","CAF") -->
+
+<!-- SpatialDimPlot(sobj[,sobj$cell_type %in% c('PDAC','FIBROBLASTS')], label = F, ncol = 3, pt.size.factor = 8, image.alpha = 0.5, group.by = "broad_celltype", cols = broad.cols) -->
+<!-- ``` -->
+
+```{r}
+#save(sobj, file = paste0(obj.dir,"finalVisiumHD_016um_cirroRCTD_seurObj_updated.rda"))
+
+# save object with all subtype etc annotations in the full merged object
+save(sobj, file = paste0(obj.dir,"final_codeCheck/allSubtypes_fullObj_016um_seurObj.rda"))
+```
+
+```{r}
+sessionInfo()
+```
+

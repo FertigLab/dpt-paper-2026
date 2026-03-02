@@ -1,0 +1,141 @@
+---
+title: "Add RCTD Annotations to Seurat Object"
+author: "Meredith Wetzel"
+date: "2025-05-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+rm(list = ls())
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(RColorBrewer)
+library(EnhancedVolcano)
+library(fgsea)
+library(DESeq2)
+library(DT)
+library(ggbiplot)
+library(reshape2)
+library(ggpubr)
+library(CoGAPS)
+library(SeuratDisk)
+source(file = "../../../stacked_props_function.R")
+options(future.globals.maxSize = 8000 * 1024^2)
+set.seed(1234)
+```
+
+```{r include=FALSE}
+#obj.dir <- "/projects/btcpilot_visiumhd/objects/final_codeCheck/"
+obj.dir <- "/projects/btcpilot_visiumhd/objects/"
+
+merged.dir <- "/projects/btcpilot_visiumhd/objects/ind_unprocessed_coda_objects/"
+```
+
+```{r}
+# load in metadata with RCTD annotations
+# combined.meta <- read.csv2(file = paste0(obj.dir,"cirro/updated_combined_rctd_metadata.csv"), sep = ",", col.names = c("barcodes","in_tissue","cell_type_rctd","sample_name","sample_type")) # old one without merged PDAC
+
+combined.meta <- read.csv2(file = paste0(obj.dir,"cirro/updatedRCTDannotations/BTC_DPT_all_samples_rctd_metadata_updatedRCTD.csv"), sep = ",")#, col.names = c("barcodes","in_tissue","cell_type_rctd","sample_name","sample_type")) # I don't think this is all samples combined
+```
+
+```{r}
+# split by sample name
+split_data <- split(combined.meta, f = combined.meta$sampleID)  
+split_data_type <- split(combined.meta, f = combined.meta$sample_type)  
+```
+
+# Load in seurat object
+```{r warning=FALSE}
+load(file = paste0(merged.dir,"merged_016um_seurObj_updated.rda")) # need to re-update this (will be merged_016um_seurObj.RDS?)
+# remove samples 2 and 6 (not included in RCTD run/further analysis)
+Idents(sobj) <- "sample"
+sobj <- subset(sobj, idents = c("HC2","HC6"), invert = T) # also remove sample 2?
+```
+
+# Map from combined meta to seurat object
+```{r}
+sobj$barcodes <- rownames(sobj@meta.data)
+meta <- sobj@meta.data
+```
+
+```{r}
+# map cirro sample names to our sample names
+# mapping <- c(HC01BTC_visiumHD = "HC1", HC02BTC_visiumHD = "HC2", HC03BTC_visiumHD = "HC3",HC04BTC_visiumHD = "HC4", HC05BTC_visiumHD = "HC5", HC06BTC_visiumHD = "HC6",HC07BTC_visiumHD = "HC7", HC08BTC_visiumHD = "HC8")
+combined.meta.HD <- combined.meta[combined.meta$sample_type == "HD",]
+mapping <- c(HC01BTC = "HC1", HC02BTC = "HC2", HC03BTC = "HC3",HC04BTC = "HC4", HC05BTC = "HC5", HC06BTC = "HC6",HC07BTC = "HC7", HC08BTC = "HC8") 
+combined.meta.HD$sample <- combined.meta.HD$sampleID
+combined.meta.HD$sample <- mapping[combined.meta.HD$sample]
+# format to match (remove suffix and add prefix)
+combined.meta.HD$barcodes_sobj <- paste0(combined.meta.HD$sample,"_", sub("-\\d+$", "", combined.meta.HD$barcode)) # this probably needs to be updated too
+#limit to just HD cohort
+#combined.meta.HD <- combined.meta[combined.meta$sample_type == "HD",]
+rownames(combined.meta.HD) <- combined.meta.HD$barcodes_sobj
+```
+
+# Join metadata by barcode
+```{r}
+# first check if all values are found in both objects
+setequal(colnames(sobj), rownames(combined.meta.HD)) # this is false now
+
+all.meta <- merge(meta, combined.meta.HD, by.y = "barcodes_sobj", by.x = "barcodes")
+names(all.meta)
+rownames(all.meta) <- all.meta$barcodes
+unique(meta$sample)
+unique(combined.meta.HD$sample)
+```
+
+```{r warning=FALSE}
+# Add merged metadata to seurat object
+sobj <- AddMetaData(sobj, metadata = all.meta)
+names(sobj@images) <- unique(sobj$sample)
+# # remove sample 2 # done above now
+# Idents(sobj) <- "sample"
+# sobj <- subset(sobj, idents = "HC2", invert = T)
+
+# save seurat object
+#save(sobj, file = paste0(obj.dir,"merged_016um_cirroRCTD_seurObj_updated.rda"))
+```
+
+# Visualize Annotations
+```{r fig.height=10, fig.width=15}
+# CODA annotations
+col_pal <- c("pink2","orange","lightblue","red","darkgreen","blue","yellow","purple","brown")
+names(col_pal) <- c("stroma","acini","NA","PDAC","normal duct","mixed","immune","nerve","fat")
+SpatialDimPlot(sobj, label = F, ncol = 3, pt.size.factor = 8, image.alpha = 0.5, group.by = "CODA", cols = col_pal)
+```
+
+```{r fig.height=11, fig.width=15, warning=FALSE}
+# # RCTD
+# rctd.cols <- c('red','blue','green2','brown','pink','yellow','orange','turquoise','purple','gold2','lightblue','lightgreen','magenta','tan','lightgrey')
+# names(rctd.cols) <- c("ENDOTHELIAL","FIBROBLASTS","CYCLING DUCTAL","DUCTAL","MYELOID","PLASMA","PERICYTES","CYCLING. MYELOID","ENDOCRINE","TNK","ACINAR","B CELLS","MAST","CYCLING TNK","NA")
+
+# RCTD
+rctd.cols <- c('red','blue','green2','pink','yellow','orange','turquoise','purple','gold2','lightblue','lightgreen','magenta','tan','lightgrey')
+names(rctd.cols) <- c("ENDOTHELIAL","FIBROBLASTS","PDAC","MYELOID","PLASMA","PERICYTES","CYCLING MYELOID","ENDOCRINE","TNK","ACINAR","B CELLS","MAST","CYCLING TNK","NA")
+SpatialDimPlot(sobj[,sobj$cell_type != ""], group.by = "cell_type", ncol = 3, pt.size.factor = 8, image.alpha = 0.5, cols = rctd.cols)
+```
+
+```{r fig.height=8, fig.width=8}
+props <- stack_cell_porportions(sobj, group.by.x = "sample",group.by.stack = "cell_type")
+plot_stack(props, group.by.x = "sample",group.by.stack = "cell_type") + scale_fill_manual(values = rctd.cols) #dark grey are the NA/unannotated bins
+```
+
+```{r fig.height=8, fig.width=8, warning=FALSE}
+props <- stack_cell_porportions(sobj[,sobj$cell_type != ""], group.by.x = "sample",group.by.stack = "cell_type")
+plot_stack(props, group.by.x = "sample",group.by.stack = "cell_type") + scale_fill_manual(values = rctd.cols)
+```
+
+```{r}
+# save this object:
+save(sobj, file = paste0(obj.dir,"final_codeCheck/merged_annotated_016um_seurObj.rda")) 
+```
+
+```{r}
+sessionInfo()
+```

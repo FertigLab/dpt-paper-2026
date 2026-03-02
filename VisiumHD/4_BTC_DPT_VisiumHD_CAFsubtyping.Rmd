@@ -1,0 +1,127 @@
+---
+title: "VisiumHD CAF Subtyping"
+author: "Meredith Wetzel"
+date: "2025-06-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+rm(list = ls())
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(RColorBrewer)
+library(EnhancedVolcano)
+library(fgsea)
+library(DESeq2)
+library(DT)
+library(ggbiplot)
+library(reshape2)
+library(ggpubr)
+library(CoGAPS)
+library(SeuratDisk)
+source(file = "../../../stacked_props_function.R")
+options(future.globals.maxSize = 8000 * 1024^2)
+set.seed(1234)
+```
+
+```{r include=FALSE}
+obj.dir <- "/projects/btcpilot_visiumhd/objects/"
+```
+
+```{r}
+#load(file = paste0(obj.dir,"CAF_wSubtypes_016um_cirroRCTD_seurObj_updated.rda"))
+# load(file = paste0(obj.dir,"merged_016um_seurObj_updated.rda")) # need to go through all the object names
+load(file = paste0(obj.dir,"final_codeCheck/merged_annotated_016um_seurObj.rda")) 
+info <- sobj@meta.data
+```
+
+# CAF Gene Signatures
+```{r}
+pancaf_genes <- c('LUM','DCN','COL1A1','VIM','CD39','FSP1','FAP','ACTA2','PDPN')
+iCAF_genes <- c('CXCL1','CXCL2','CCL2','CXCL12','PDGFRA','CFD','LMNA','DPT','HAS1','HAS2')
+myCAF_genes <- c('TAGLN','MYL9','TPM2','MMP11','POSTN','HOPX','TWIST1','SOX4')
+apCAF_genes <- c('HLA-DRA','HLA-DPA1','CD74','HLA-DQ','SLPI')
+```
+
+# Subset to just fibroblasts (based on RCTED)
+```{r}
+# Idents(sobj) <- "cell_type_rctd" # old col
+Idents(sobj) <- "cell_type"
+sobj.caf <- subset(sobj, idents = "FIBROBLASTS")
+sobj.caf <- JoinLayers(sobj.caf)
+```
+
+```{r}
+# run module scores for CAF subtypes
+sobj.caf <- AddModuleScore(sobj.caf, features = list(pancaf_genes),name = "pancaf")
+sobj.caf <- AddModuleScore(sobj.caf, features = list(iCAF_genes),name = "iCAF")
+sobj.caf <- AddModuleScore(sobj.caf, features = list(myCAF_genes),name = "myCAF")
+sobj.caf <- AddModuleScore(sobj.caf, features = list(apCAF_genes),name = "apCAF")
+```
+
+```{r}
+# Min-max normalization function for module scores
+min_max_norm <- function(x) {
+  (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+}
+```
+
+```{r}
+# run normalization
+sobj.caf$iCAF_norm <- min_max_norm(sobj.caf$iCAF1)
+sobj.caf$myCAF_norm <- min_max_norm(sobj.caf$myCAF1)
+```
+
+```{r}
+sobj.caf_df <- data.frame(cbind(sobj.caf$myCAF_norm, sobj.caf$iCAF_norm, "CAF"))
+colnames(sobj.caf_df) <- c("myCAF", "iCAF", "Type_CAF")
+```
+
+```{r}
+id1 <- intersect(which(sobj.caf$iCAF_norm < sobj.caf$myCAF_norm - 0.2), which(as.numeric(sobj.caf$myCAF_norm) > 0.2))
+id2 <- intersect(which(sobj.caf$iCAF_norm > sobj.caf$myCAF_norm + 0.2), which(as.numeric(sobj.caf$iCAF_norm) > 0.2))
+id3 <- intersect(which(sobj.caf$iCAF_norm < sobj.caf$myCAF_norm + 0.2), which(sobj.caf$iCAF_norm > sobj.caf$myCAF_norm - 0.2))
+sobj.caf_df$Type_CAF[id1] <- "myCAF"
+sobj.caf_df$Type_CAF[id2] <- "iCAF"
+sobj.caf_df$Type_CAF[id3] <- "CAF"
+```
+
+```{r}
+sobj.caf_df$myCAF <- as.numeric(sobj.caf_df$myCAF)
+sobj.caf_df$iCAF <- as.numeric(sobj.caf_df$iCAF)
+sobj.caf_df$Type_CAF <- factor(sobj.caf_df$Type_CAF, levels = c("myCAF", "CAF", "iCAF"))
+```
+
+```{r}
+# add annotation to seurat object
+sobj.caf <- AddMetaData(sobj.caf, sobj.caf_df, col.name = "Type_CAF")
+table(sobj.caf_df$Type_CAF)
+```
+
+# Visualize Annotations
+```{r fig.height=10, fig.width=15}
+sub.cols <- c("maroon1","darkturquoise","orange")
+names(sub.cols) <- c("myCAF","iCAF","CAF")
+SpatialDimPlot(sobj.caf, label = F, ncol = 3, pt.size.factor = 8, image.alpha = 0.5, group.by = "Type_CAF", cols = sub.cols)
+```
+
+```{r fig.height=8, fig.width=8, warning=FALSE}
+props <- stack_cell_porportions(sobj.caf, group.by.x = "sample",group.by.stack = "Type_CAF")
+plot_stack(props, group.by.x = "sample",group.by.stack = "Type_CAF") + scale_fill_manual(values = sub.cols)
+```
+
+```{r}
+# save object with annotations
+#save(sobj.caf, file = paste0(obj.dir,"final_codeCheck/Vince_bothSubtypes_CAF_016um_seurObj.rda"))
+save(sobj.caf, file = paste0(obj.dir,"final_codeCheck/CAFsubtypes_016um_seurObj.rda"))
+```
+
+```{r}
+sessionInfo()
+```

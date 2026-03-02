@@ -1,0 +1,243 @@
+---
+title: "BTC DPT Visium HD Cohort - Classical Differential Expression Analysis"
+author: "Meredith Wetzel"
+date: "2025-07-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.path = "12_figures/",
+  dev = "pdf")
+```
+
+```{r message=FALSE, warning=FALSE}
+rm(list = ls())
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(RColorBrewer)
+library(EnhancedVolcano)
+library(fgsea)
+library(DESeq2)
+library(DT)
+library(ggbiplot)
+library(reshape2)
+library(ggpubr)
+library(CoGAPS)
+library(SeuratDisk)
+source(file = "../../../stacked_props_function.R")
+options(future.globals.maxSize = 8000 * 1024^2)
+set.seed(1234)
+```
+
+```{r include=FALSE}
+obj.dir <- "/projects/btcpilot_visiumhd/objects/"
+```
+
+```{r}
+# load in data
+# load(file = paste0(obj.dir,"Vince_bothSubtypes_016um_seurObj.rda"))
+load(file = paste0(obj.dir,"final_codeCheck/PDACsubtypes_016um_seurObj.rda"))
+```
+
+```{r}
+type.color <- c("green4","blue2","mediumpurple1")
+names(type.color) <- c("Basal","Classical","Intermediate")
+```
+
+```{r fig.height=10, fig.width=15}
+SpatialDimPlot(sobj.epi, group.by = 'Type', ncol = 3, pt.size.factor = 8, image.alpha = 0.5, cols = type.color)
+```
+
+```{r fig.height=4, fig.width=5}
+props <- stack_cell_porportions(sobj.epi, group.by.x = "sample", group.by.stack = 'Type')
+plot_stack(props, group.by.x = "sample", group.by.stack = 'Type') + scale_fill_manual(values = type.color)
+```
+
+# Pseudobulk DE - Classical first
+
+```{r warning=FALSE}
+sample_list <- SplitObject(sobj.epi, split.by = "sample")
+HC1.sobj.epi <- sample_list[["HC1"]]
+HC3.sobj.epi <- sample_list[["HC3"]]
+HC4.sobj.epi <- sample_list[["HC4"]]
+HC5.sobj.epi <- sample_list[["HC5"]]
+HC7.sobj.epi <- sample_list[["HC7"]]
+HC8.sobj.epi <- sample_list[["HC8"]]
+```
+
+```{r warning=FALSE}
+# Extract raw counts for each
+counts_1 = HC1.sobj.epi[,HC1.sobj.epi$Type == "Classical"]@assays$Spatial.016um$counts
+counts_3 = HC3.sobj.epi[,HC3.sobj.epi$Type == "Classical"]@assays$Spatial.016um$counts
+counts_4 = HC4.sobj.epi[,HC4.sobj.epi$Type == "Classical"]@assays$Spatial.016um$counts
+counts_5 = HC5.sobj.epi[,HC5.sobj.epi$Type == "Classical"]@assays$Spatial.016um$counts
+counts_7 = HC7.sobj.epi[,HC7.sobj.epi$Type == "Classical"]@assays$Spatial.016um$counts
+counts_8 = HC8.sobj.epi[,HC8.sobj.epi$Type == "Classical"]@assays$Spatial.016um$counts
+```
+
+```{r}
+# HC1,HC2,HC3,HC4 = NR; HC5,HC7,HC8 = R # NOTE: no HC6 and HC2 in this object
+groups1 = c('HC1','HC3','HC4')
+groups2 = c('HC5','HC7','HC8')
+
+# Non Responders
+agg1 = as.matrix(rowSums(counts_1))
+colnames(agg1) <- "HC1_NR"
+agg3 = as.matrix(rowSums(counts_3))
+colnames(agg3) <- "HC3_NR"
+agg4 = as.matrix(rowSums(counts_4))
+colnames(agg4) <- "HC4_NR"
+
+# Responders
+agg5 = as.matrix(rowSums(counts_5))
+colnames(agg5) <- "HC5_R"
+agg7 = as.matrix(rowSums(counts_7))
+colnames(agg7) <- "HC7_R"
+agg8 = as.matrix(rowSums(counts_8))
+colnames(agg8) <- "HC8_R"
+
+agg_all = cbind(agg1, agg3, agg4, agg5, agg7, agg8)
+```
+
+```{r}
+# create metadata for deseq2
+meta = data.frame('annot' = colnames(agg_all), 'sample_id' = c('HC1','HC3','HC4','HC5','HC7','HC8'), 'responseType' = c('NR','NR','NR','R','R','R'))
+rownames(meta) = colnames(agg_all)
+meta
+```
+
+```{r}
+dds <- DESeqDataSetFromMatrix(agg_all, 
+                              colData = meta, 
+                              design = ~ responseType)
+```
+
+```{r}
+exprsDat = as.matrix(dds@assays@data$counts)
+boxplot(log2(exprsDat+1), ylab='log2(counts+1)', xlab='samples', outline = F, las=2, cex.axis = 0.55, border = ifelse(apply(log2(exprsDat+1),2,median)==0,'red','black'), main = "Distribution of log-transformed counts Classical") # remove HC7 and HC8
+```
+
+```{r}
+dds <- dds[,-c(5,6)] # these don't follow cluster names, follow cluster order (remove HC7, HC8)
+```
+
+```{r}
+# check sample removal
+exprsDat = as.matrix(dds@assays@data$counts)
+boxplot(log2(exprsDat+1), ylab='log2(counts+1)', xlab='samples', outline = F, las=2, cex.axis = 0.55, border = ifelse(apply(log2(exprsDat+1),2,median)==0,'red','black'), main = "Distribution of log-transformed counts Classical") 
+```
+
+```{r}
+dds <- DESeq(dds, fitType = 'local') 
+```
+
+```{r}
+# Plot dispersion estimates
+plotDispEsts(dds, cex = 0.1)
+```
+
+```{r}
+# Make comparisons of interest
+        ## recommend to run all groups together, then use 'contrast' to extract comparisons of interest
+#name_tocompare = 'NR_vs_R'
+name_tocompare = "responseType_R_vs_NR" # makes no difference
+cond = 'responseType'
+v1 = 'NR'
+v2 = 'R'
+#The contrast = c(cond, v1, v2) is what's actually being used to calculate the results, and the name is essentially ignored
+res <- results(dds, name = name_tocompare, contrast = c(cond, v1, v2), alpha = 0.05) #contrast = c('factorname','variable1tocompare','v2tocompare'))
+        ## alpha is FDR-adjusted p value cutoff
+
+summary(res)
+```
+
+```{r}
+# Shrinking log fold changes for genes with low counts
+    ## useful for visualization and gene ranking
+    ## recommended for bulk RNAseq
+
+levels(dds$responseType) # see what coef you want 
+
+resLFC <- lfcShrink(dds, type = 'ashr', res = res, coef= 1) #, coef = 2 # there is no difference using coef = 1 or coef = 2
+        ## coef is what level of factor you want to compare to reference level
+        ## if res not provided, it will be generated using coef or contrast
+resLFC
+```
+
+```{r}
+# Remove NAs from p values
+resLFC = resLFC[!is.na(resLFC$padj),]
+
+# How many significant results?
+length(resLFC@listData$padj)
+length(resLFC@listData$padj[resLFC@listData$padj < 0.05])
+
+# Extract stats for pathway analysis
+resLFC_stats <- resLFC$log2FoldChange
+names(resLFC_stats) = row.names(resLFC)
+```
+
+```{r}
+plotMA(resLFC)
+```
+
+```{r fig.height=10, fig.width=8}
+EnhancedVolcano(resLFC, lab=row.names(resLFC), x='log2FoldChange', y='padj', FCcutoff = 0.5,pCutoff = 0.05, title = "NR vs. R in Classical",labSize = 3)
+```
+
+```{r}
+lfc_thresh <- 0.5
+resLFC_TopDE <- resLFC[resLFC$padj < 0.05 & abs(resLFC$log2FoldChange) > lfc_thresh,]
+resLFC_TopDE$abs_logFC = abs(resLFC_TopDE$log2FoldChange)
+
+resLFC_TopDE = resLFC_TopDE[order(resLFC_TopDE$abs_logFC, decreasing = T),] #order by log2fc
+nrow(resLFC_TopDE)
+head(resLFC_TopDE, 10)
+```
+
+# Pathway analysis - HALLMARK
+
+```{r}
+HALLMARK <- gmtPathways("../../../h.all.v2023.2.Hs.symbols.gmt")
+stats <- res$log2FoldChange
+names(stats) <- rownames(res)
+# trying to fix finite value error
+stats <- stats[is.finite(stats)] 
+path_results <- list(HALLMARK=fgsea(pathways = HALLMARK, stats = stats))#, nPermSimple = 150000))
+# Warning: There are ties in the preranked stats (7.01% of the list).
+# The order of those tied genes will be arbitrary, which may produce unexpected results.Warning: There were 26 pathways for which P-values were not calculated properly due to unbalanced (positive and negative) gene-level statistic values. For such pathways pval, padj, NES, log2err are set to NA. You can try to increase the value of the argument nPermSimple (for example set it nPermSimple = 100000)
+save(path_results, file = paste0(obj.dir,"final_codeCheck/FinalFigs_Classical_pathwayRes_20251217.rda"))
+```
+
+```{r}
+#path_results$HALLMARK <- path_results$HALLMARK[!is.na(path_results$HALLMARK$pval),]
+path_results$HALLMARK$adjPvalue <- ifelse(path_results$HALLMARK$padj <= 0.05, "significant", "non-significant")
+cols <- c("non-significant" = "grey", "significant" = "red")
+ggplot(path_results$HALLMARK, aes(reorder(pathway, NES), NES, fill = adjPvalue)) +
+  geom_col() +
+  scale_fill_manual(values = cols) +
+  theme(axis.text.y = element_text(size=5)) +
+  coord_flip() +
+  labs(x="Pathway", y="Normalized Enrichment Score",
+       title="HALLMARK pathways Enrichment Score Non-Responder vs Responder in Classical") + theme(plot.title.position = "plot", plot.title = element_text(size=8, face="bold"))
+## Sig Only HALLMARK Barplot
+path_results_sig <- path_results$HALLMARK[padj < 0.05]
+if (nrow(path_results_sig)==0){ print("No Significant pathways with pAdj < 0.05"
+)} else {
+  ggplot(path_results_sig, aes(reorder(pathway, NES), NES, fill = adjPvalue)) +
+    geom_col() +
+    scale_fill_manual(values = cols) +
+    theme(axis.text.y = element_text(size=5)) +
+    coord_flip() +
+    labs(x="Pathway", y="Normalized Enrichment Score",
+         title="Significant (pAdj<0.05) HALLMARK pathways Enrichment Score Non-Responder vs Responder in Classical") + theme(plot.title.position = "plot", plot.title = element_text(size=8, face="bold"))
+}
+```
+
+```{r}
+sessionInfo()
+```

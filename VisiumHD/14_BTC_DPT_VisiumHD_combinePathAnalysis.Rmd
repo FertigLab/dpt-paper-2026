@@ -1,0 +1,265 @@
+---
+title: "BTC DPT Visium HD Cohort - Combine HALLMARK Pathway Analysis Results"
+author: "Meredith Wetzel"
+date: "2025-12-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.path = "14_figures/",
+  dev = "pdf")
+```
+
+```{r message=FALSE, warning=FALSE}
+rm(list = ls())
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(RColorBrewer)
+library(EnhancedVolcano)
+library(fgsea)
+library(DESeq2)
+library(DT)
+library(ggbiplot)
+library(reshape2)
+library(ggpubr)
+library(CoGAPS)
+library(SeuratDisk)
+source(file = "../../../stacked_props_function.R")
+options(future.globals.maxSize = 8000 * 1024^2)
+set.seed(1234)
+```
+
+```{r include=FALSE}
+obj.dir <- "/projects/btcpilot_visiumhd/objects/"
+```
+
+<!-- ```{r} -->
+<!-- # load(file = paste0(obj.dir,"noHC2_merged_016um_cirroRCTD_seurObj_updated_VBannotCombined.rda")) -->
+<!-- load(file = paste0(obj.dir,"final_codeCheck/allSubtypes_fullObj_016um_seurObj.rda")) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- rctd.cols <- c('red','blue','green2','pink','yellow','orange','turquoise','purple','gold2','lightblue','lightgreen','magenta','tan','lightgrey') -->
+<!-- names(rctd.cols) <- c("ENDOTHELIAL","FIBROBLASTS","PDAC","MYELOID","PLASMA","PERICYTES","CYCLING MYELOID","ENDOCRINE","TNK","ACINAR","B CELLS","MAST","CYCLING TNK","NA") -->
+<!-- celltypes <- c("ENDOTHELIAL","FIBROBLASTS","PDAC","MYELOID","PLASMA","PERICYTES","CYCLING MYELOID","ENDOCRINE","TNK","ACINAR","B CELLS","MAST","CYCLING TNK","NA") -->
+
+<!-- sub.cols <- c("green4","blue2","maroon1","darkturquoise","mediumpurple1","orange") -->
+<!-- names(sub.cols) <- c("Basal","Classical","myCAF","iCAF","Intermediate","CAF") -->
+
+<!-- caf.type.color <- c("maroon1", "orange", "darkturquoise") -->
+<!-- names(caf.type.color) <- c("myCAF", "CAF", "iCAF") -->
+
+<!-- epi.type.color <- c("green4","blue2","mediumpurple1") -->
+<!-- names(epi.type.color) <- c("Basal","Classical","Intermediate") -->
+
+<!-- response.cols <- c(rgb(53,150,54,maxColorValue = 255),rgb(227,172,43,maxColorValue = 255)) # to match the SD colors/Andre's -->
+<!-- names(response.cols) <- c("non-responding","responding") -->
+<!-- ``` -->
+
+
+# Plot pathway results together
+Recall that all comparisons are NR vs R
+```{r}
+# load in DE results
+load(file = paste0(obj.dir,"final_codeCheck/FinalFigs_iCAF_pathwayRes_20251217.rda"))
+path_results_iCAF <- path_results
+load(file = paste0(obj.dir,"final_codeCheck/FinalFigs_myCAF_pathwayRes_20251217.rda"))
+path_results_myCAF <- path_results
+load(file = paste0(obj.dir,"final_codeCheck/FinalFigs_Basal_pathwayRes_20251217.rda"))
+path_results_basal <- path_results
+load(file = paste0(obj.dir,"final_codeCheck/FinalFigs_Classical_pathwayRes_20251217.rda"))
+path_results_classical <- path_results
+load(file = paste0(obj.dir,"final_codeCheck/FinalFigs_IntermediatePDAC_pathwayRes_20251217.rda"))
+path_results_intermediate <- path_results
+load(file = paste0(obj.dir,"final_codeCheck/FinalFigs_allPDAC_pathwayRes_20251217.rda"))
+path_results_epithelial <- path_results
+load(file = paste0(obj.dir,"final_codeCheck/FinalFigs_CAF_pathwayRes_20251217.rda"))
+path_results_CAF <- path_results
+```
+
+# all together
+```{r fig.height=8, fig.width=6}
+# merge pathwyay analysis results for plotting
+  pathRes = rbind(cbind(comparison = rep("iCAF",nrow(path_results_iCAF$HALLMARK)),path_results_iCAF$HALLMARK),
+  cbind(comparison = rep("myCAF",nrow(path_results_myCAF$HALLMARK)),path_results_myCAF$HALLMARK),
+  cbind(comparison = rep("basal",nrow(path_results_basal$HALLMARK)),path_results_basal$HALLMARK),
+  cbind(comparison = rep("classical",nrow(path_results_classical$HALLMARK)),path_results_classical$HALLMARK),
+  cbind(comparison = rep("intermediate PDAC",nrow(path_results_intermediate$HALLMARK)),path_results_intermediate$HALLMARK),
+  cbind(comparison = rep("PDAC",nrow(path_results_epithelial$HALLMARK)),path_results_epithelial$HALLMARK),
+  cbind(comparison = rep("CAF",nrow(path_results_CAF$HALLMARK)),path_results_CAF$HALLMARK))
+
+ # make NES for not sugnificant pathways as NA
+  pathRes_ns = pathRes %>% mutate(NES, NES = ifelse(padj >0.05, NA, NES))
+  
+  # plot: dot plot
+  p = ggplot(data = pathRes_ns %>% filter(!is.na(NES)), aes(x = comparison, y = pathway, color = NES)) + 
+    geom_point(size = 4) +
+  #  scale_color_gradient(low = "red", high = "blue") +
+    scale_colour_gradient2(low = "blue", high = "red") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+  print(p)
+```
+
+# CAF only
+```{r fig.height=5, fig.width=5}
+# merge pathwyay analysis results for plotting
+  pathRes = rbind(cbind(comparison = rep("iCAF",nrow(path_results_iCAF$HALLMARK)),path_results_iCAF$HALLMARK),
+  cbind(comparison = rep("myCAF",nrow(path_results_myCAF$HALLMARK)),path_results_myCAF$HALLMARK),
+  cbind(comparison = rep("CAF",nrow(path_results_CAF$HALLMARK)),path_results_CAF$HALLMARK))
+
+ # make NES for not sugnificant pathways as NA
+  pathRes_ns = pathRes %>% mutate(NES, NES = ifelse(padj >0.05, NA, NES))
+  
+  # plot: dot plot
+  p = ggplot(data = pathRes_ns %>% filter(!is.na(NES)), aes(x = comparison, y = pathway, color = NES)) + 
+    geom_point(size = 4) +
+  #  scale_color_gradient(low = "red", high = "blue") +
+    scale_colour_gradient2(low = "blue", high = "red") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+  print(p)
+```
+
+# PDAC only
+```{r fig.height=7, fig.width=6}
+# merge pathwyay analysis results for plotting
+  pathRes = rbind(cbind(comparison = rep("basal",nrow(path_results_basal$HALLMARK)),path_results_basal$HALLMARK),
+  cbind(comparison = rep("classical",nrow(path_results_classical$HALLMARK)),path_results_classical$HALLMARK),
+  cbind(comparison = rep("intermediate",nrow(path_results_intermediate$HALLMARK)),path_results_intermediate$HALLMARK),
+  cbind(comparison = rep("PDAC",nrow(path_results_epithelial$HALLMARK)),path_results_epithelial$HALLMARK))
+
+ # make NES for not sugnificant pathways as NA
+  pathRes_ns = pathRes %>% mutate(NES, NES = ifelse(padj >0.05, NA, NES))
+
+    pathRes_ns <- pathRes_ns %>%
+  mutate(
+    comparison = factor(
+      comparison,
+      levels = c("classical", "intermediate", "basal","PDAC") # reorder the x-axis
+    )
+  )
+
+p <- ggplot(
+  pathRes_ns %>% filter(!is.na(NES)),
+  aes(x = comparison, y = pathway, color = NES)
+) +
+  geom_point(size = 4) +
+  geom_vline(
+    xintercept = 3.5,
+    linetype = "solid",
+    linewidth = 0.6,
+    color = "grey40"
+  ) +
+  scale_colour_gradient2(low = "blue", high = "red") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5)
+  )
+
+print(p)
+
+p <- ggplot(
+  pathRes_ns %>% filter(!is.na(NES)),
+  aes(x = comparison, y = pathway, color = NES)
+) +
+  geom_point(size = 4) +
+  scale_colour_gradient2(low = "blue", high = "red") +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5)
+  )
+
+print(p)
+
+```
+
+<!-- ```{r  fig.height=7, fig.width=6} -->
+<!-- p <- ggplot( -->
+<!--   pathRes_ns %>% filter(!is.na(NES)), -->
+<!--   aes(x = comparison, y = pathway, color = NES) -->
+<!-- ) + -->
+<!--   geom_point(size = 4) + -->
+<!--   geom_vline( -->
+<!--     xintercept = 1.5, -->
+<!--     linetype = "dashed", -->
+<!--     linewidth = 0.6, -->
+<!--     color = "grey40" -->
+<!--   ) + -->
+<!--   scale_colour_gradient2(low = "blue", high = "red") + -->
+<!--   theme( -->
+<!--     axis.text.x = element_text(angle = 90, vjust = 0.5) -->
+<!--   ) -->
+
+<!-- print(p) -->
+
+<!-- ``` -->
+
+
+# epithelial only - without epithelial annotation
+```{r fig.height=7, fig.width=5}
+# merge pathwyay analysis results for plotting
+  pathRes = rbind(cbind(comparison = rep("basal",nrow(path_results_basal$HALLMARK)),path_results_basal$HALLMARK),
+  cbind(comparison = rep("classical",nrow(path_results_classical$HALLMARK)),path_results_classical$HALLMARK),
+  cbind(comparison = rep("intermediate",nrow(path_results_intermediate$HALLMARK)),path_results_intermediate$HALLMARK))
+
+ # make NES for not sugnificant pathways as NA
+  pathRes_ns = pathRes %>% mutate(NES, NES = ifelse(padj >0.05, NA, NES))
+  
+      pathRes_ns <- pathRes_ns %>%
+  mutate(
+    comparison = factor(
+      comparison,
+      levels = c("classical", "intermediate", "basal") # reorder the x-axis
+    )
+  )
+  
+  # plot: dot plot
+  p = ggplot(data = pathRes_ns %>% filter(!is.na(NES)), aes(x = comparison, y = pathway, color = NES)) + 
+    geom_point(size = 4) +
+  #  scale_color_gradient(low = "red", high = "blue") +
+    scale_colour_gradient2(low = "blue", high = "red") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+  print(p)
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+sessionInfo()
+```

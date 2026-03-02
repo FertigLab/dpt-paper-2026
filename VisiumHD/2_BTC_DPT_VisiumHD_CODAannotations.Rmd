@@ -1,0 +1,497 @@
+---
+title: "BTC DPT Visium HD - CODA Annotations 016um"
+author: "Meredith Wetzel"
+date: "2025-01-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+rm(list = ls())
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(RColorBrewer)
+library(EnhancedVolcano)
+library(fgsea)
+options(future.globals.maxSize = 8000 * 1024^2)
+set.seed(1234)
+```
+
+```{r include=FALSE}
+datadir <- "../spaceranger/"
+objdir <- "/projects/btcpilot_visiumhd/objects/final_codeCheck/"
+plotsdir <- "/projects/btcpilot_visiumhd/plots/final_codeCheck/"
+codadir <- "../CODAclassification_BTCHD/"
+```
+
+# CODA color scheme
+```{r}
+col_pal <- c("pink2","orange","lightblue","red","darkgreen","blue","yellow","purple","brown")
+names(col_pal) <- c("stroma","acini","NA","PDAC","normal duct","mixed","immune","nerve","fat")
+```
+
+# HC1
+```{r}
+# read in CODA
+CODA_annot <- as.data.frame(read.csv(paste0(codadir,"CODA Visium HD files 016um v2/H1_16um_Registered_tissue_positions_cellular_compositions.csv")))
+rownames(CODA_annot) <- CODA_annot$X
+CODA_annot <- CODA_annot[, -c(1, 2, 3, 4, 5, 6)]
+
+# load in each object
+sobj <- readRDS(paste0(objdir,"HC1_016um_seurObj.RDS"))
+
+# add assay information to metadata
+barcodes <- colnames(sobj)
+sobj$Assay <- "016"
+meta <- sobj@meta.data
+
+meta <- merge(meta, CODA_annot, by = "row.names")
+
+names(CODA_annot)
+meta$CODA <- "mixed"
+meta$CODA[meta$PDAC >= 75] <- "PDAC"
+meta$CODA[meta$Stroma >= 75] <- "stroma"
+meta$CODA[meta$Immune >= 75] <- "immune"
+meta$CODA[meta$Vasculature >= 75] <- "vasculature"
+meta$CODA[meta$Fat >= 75] <- "fat"
+meta$CODA[meta$Acini >= 75] <- "acini"
+meta$CODA[meta$Islets >= 75] <- "islets"
+meta$CODA[meta$Nerve >= 75] <- "nerve"
+meta$CODA[meta$Duct >= 75] <- "normal duct"
+meta$CODA[meta$PDAC == 0 & 
+                 meta$Stroma == 0 & 
+                 meta$Immune == 0 &
+                 meta$Vasculature == 0 &
+                 meta$Fat == 0 &
+                 meta$Acini == 0 &
+                 meta$Islets == 0 &
+                 meta$Nerve == 0 &
+                 meta$Duct == 0] <- "NA"
+table(meta$CODA)
+
+rownames(meta) <- meta$Row.names
+sobj <- AddMetaData(object = sobj, metadata = meta)
+
+DefaultAssay(sobj) <- "Spatial.016um"
+SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, alpha = 1, image.alpha = 0, cols = col_pal) + ggtitle("HC1 016um bins")
+p <- SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, cols = col_pal) + ggtitle("HC1 016um bins")
+p
+#ggsave(plot = p, filename = "HC1_016um_CODA.png", path = plotsdir)
+saveRDS(sobj, file = paste0(objdir,"HC1_016um_CODA_seurObj.RDS"))
+```
+
+# HC2
+```{r}
+rm(sobj)
+rm(meta)
+rm(barcodes)
+rm(CODA_annot)
+
+# read in CODA
+CODA_annot <- as.data.frame(read.csv(paste0(codadir,"CODA Visium HD files 016um v2/H2_16um_Registered_tissue_positions_cellular_compositions.csv")))
+rownames(CODA_annot) <- CODA_annot$X
+CODA_annot <- CODA_annot[, -c(1, 2, 3, 4, 5, 6)]
+
+# load in each object
+sobj <- readRDS(paste0(objdir,"HC2_016um_seurObj.RDS"))
+
+# add assay information to metadata
+barcodes <- colnames(sobj)
+sobj$Assay <- "016"
+meta <- sobj@meta.data
+
+meta <- merge(meta, CODA_annot, by = "row.names")
+
+names(CODA_annot)
+meta$CODA <- "mixed"
+meta$CODA[meta$PDAC >= 75] <- "PDAC"
+meta$CODA[meta$Stroma >= 75] <- "stroma"
+meta$CODA[meta$Immune >= 75] <- "immune"
+meta$CODA[meta$Vasculature >= 75] <- "vasculature"
+meta$CODA[meta$Fat >= 75] <- "fat"
+meta$CODA[meta$Acini >= 75] <- "acini"
+meta$CODA[meta$Islets >= 75] <- "islets"
+meta$CODA[meta$Nerve >= 75] <- "nerve"
+meta$CODA[meta$Duct >= 75] <- "normal duct"
+meta$CODA[meta$PDAC == 0 & 
+                 meta$Stroma == 0 & 
+                 meta$Immune == 0 &
+                 meta$Vasculature == 0 &
+                 meta$Fat == 0 &
+                 meta$Acini == 0 &
+                 meta$Islets == 0 &
+                 meta$Nerve == 0 &
+                 meta$Duct == 0] <- "NA"
+table(meta$CODA)
+
+rownames(meta) <- meta$Row.names
+sobj <- AddMetaData(object = sobj, metadata = meta)
+
+DefaultAssay(sobj) <- "Spatial.016um"
+SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, alpha = 1, image.alpha = 0, cols = col_pal) + ggtitle("HC2 016um bins")
+p <- SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, cols = col_pal) + ggtitle("HC2 016um bins")
+p
+#ggsave(plot = p, filename = "HC2_016um_CODA.png", path = plotsdir)
+saveRDS(sobj, file = paste0(objdir,"HC2_016um_CODA_seurObj.RDS"))
+```
+
+# HC3
+```{r}
+rm(sobj)
+rm(meta)
+rm(barcodes)
+rm(CODA_annot)
+
+# read in CODA
+CODA_annot <- as.data.frame(read.csv(paste0(codadir,"CODA Visium HD files 016um v2/H3_16um_Registered_tissue_positions_cellular_compositions.csv")))
+rownames(CODA_annot) <- CODA_annot$X
+CODA_annot <- CODA_annot[, -c(1, 2, 3, 4, 5, 6)]
+
+# load in each object
+sobj <- readRDS(paste0(objdir,"HC3_016um_seurObj.RDS"))
+
+# add assay information to metadata
+barcodes <- colnames(sobj)
+sobj$Assay <- "016"
+meta <- sobj@meta.data
+
+meta <- merge(meta, CODA_annot, by = "row.names")
+
+names(CODA_annot)
+meta$CODA <- "mixed"
+meta$CODA[meta$PDAC >= 75] <- "PDAC"
+meta$CODA[meta$Stroma >= 75] <- "stroma"
+meta$CODA[meta$Immune >= 75] <- "immune"
+meta$CODA[meta$Vasculature >= 75] <- "vasculature"
+meta$CODA[meta$Fat >= 75] <- "fat"
+meta$CODA[meta$Acini >= 75] <- "acini"
+meta$CODA[meta$Islets >= 75] <- "islets"
+meta$CODA[meta$Nerve >= 75] <- "nerve"
+meta$CODA[meta$Duct >= 75] <- "normal duct"
+meta$CODA[meta$PDAC == 0 & 
+                 meta$Stroma == 0 & 
+                 meta$Immune == 0 &
+                 meta$Vasculature == 0 &
+                 meta$Fat == 0 &
+                 meta$Acini == 0 &
+                 meta$Islets == 0 &
+                 meta$Nerve == 0 &
+                 meta$Duct == 0] <- "NA"
+table(meta$CODA)
+
+rownames(meta) <- meta$Row.names
+sobj <- AddMetaData(object = sobj, metadata = meta)
+
+DefaultAssay(sobj) <- "Spatial.016um"
+SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, alpha = 1, image.alpha = 0, cols = col_pal) + ggtitle("HC3 016um bins")
+p <- SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, cols = col_pal) + ggtitle("HC3 016um bins")
+p
+#ggsave(plot = p, filename = "HC3_016um_CODA.png", path = plotsdir)
+saveRDS(sobj, file = paste0(objdir,"HC3_016um_CODA_seurObj.RDS"))
+```
+
+# HC4
+```{r}
+rm(sobj)
+rm(meta)
+rm(barcodes)
+rm(CODA_annot)
+
+# read in CODA
+CODA_annot <- as.data.frame(read.csv(paste0(codadir,"CODA Visium HD files 016um v2/H4_16um_Registered_tissue_positions_cellular_compositions.csv")))
+rownames(CODA_annot) <- CODA_annot$X
+CODA_annot <- CODA_annot[, -c(1, 2, 3, 4, 5, 6)]
+
+# load in each object
+sobj <- readRDS(paste0(objdir,"HC4_016um_seurObj.RDS"))
+
+# add assay information to metadata
+barcodes <- colnames(sobj)
+sobj$Assay <- "016"
+meta <- sobj@meta.data
+
+meta <- merge(meta, CODA_annot, by = "row.names")
+
+names(CODA_annot)
+meta$CODA <- "mixed"
+meta$CODA[meta$PDAC >= 75] <- "PDAC"
+meta$CODA[meta$Stroma >= 75] <- "stroma"
+meta$CODA[meta$Immune >= 75] <- "immune"
+meta$CODA[meta$Vasculature >= 75] <- "vasculature"
+meta$CODA[meta$Fat >= 75] <- "fat"
+meta$CODA[meta$Acini >= 75] <- "acini"
+meta$CODA[meta$Islets >= 75] <- "islets"
+meta$CODA[meta$Nerve >= 75] <- "nerve"
+meta$CODA[meta$Duct >= 75] <- "normal duct"
+meta$CODA[meta$PDAC == 0 & 
+                 meta$Stroma == 0 & 
+                 meta$Immune == 0 &
+                 meta$Vasculature == 0 &
+                 meta$Fat == 0 &
+                 meta$Acini == 0 &
+                 meta$Islets == 0 &
+                 meta$Nerve == 0 &
+                 meta$Duct == 0] <- "NA"
+table(meta$CODA)
+
+rownames(meta) <- meta$Row.names
+sobj <- AddMetaData(object = sobj, metadata = meta)
+
+DefaultAssay(sobj) <- "Spatial.016um"
+SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, alpha = 1, image.alpha = 0, cols = col_pal) + ggtitle("HC4 016um bins")
+p <- SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, cols = col_pal) + ggtitle("HC4 016um bins")
+p
+#ggsave(plot = p, filename = "HC4_016um_CODA.png", path = plotsdir)
+saveRDS(sobj, file = paste0(objdir,"HC4_016um_CODA_seurObj.RDS"))
+```
+
+# HC5
+```{r}
+rm(sobj)
+rm(meta)
+rm(barcodes)
+rm(CODA_annot)
+
+# read in CODA
+CODA_annot <- as.data.frame(read.csv(paste0(codadir,"CODA Visium HD files 016um v2/H5_16um_Registered_tissue_positions_cellular_compositions.csv")))
+rownames(CODA_annot) <- CODA_annot$X
+CODA_annot <- CODA_annot[, -c(1, 2, 3, 4, 5, 6)]
+
+# load in each object
+sobj <- readRDS(paste0(objdir,"HC5_016um_seurObj.RDS"))
+
+# add assay information to metadata
+barcodes <- colnames(sobj)
+sobj$Assay <- "016"
+meta <- sobj@meta.data
+
+meta <- merge(meta, CODA_annot, by = "row.names")
+
+names(CODA_annot)
+meta$CODA <- "mixed"
+meta$CODA[meta$PDAC >= 75] <- "PDAC"
+meta$CODA[meta$Stroma >= 75] <- "stroma"
+meta$CODA[meta$Immune >= 75] <- "immune"
+meta$CODA[meta$Vasculature >= 75] <- "vasculature"
+meta$CODA[meta$Fat >= 75] <- "fat"
+meta$CODA[meta$Acini >= 75] <- "acini"
+meta$CODA[meta$Islets >= 75] <- "islets"
+meta$CODA[meta$Nerve >= 75] <- "nerve"
+meta$CODA[meta$Duct >= 75] <- "normal duct"
+meta$CODA[meta$PDAC == 0 & 
+                 meta$Stroma == 0 & 
+                 meta$Immune == 0 &
+                 meta$Vasculature == 0 &
+                 meta$Fat == 0 &
+                 meta$Acini == 0 &
+                 meta$Islets == 0 &
+                 meta$Nerve == 0 &
+                 meta$Duct == 0] <- "NA"
+table(meta$CODA)
+
+rownames(meta) <- meta$Row.names
+sobj <- AddMetaData(object = sobj, metadata = meta)
+
+DefaultAssay(sobj) <- "Spatial.016um"
+SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, alpha = 1, image.alpha = 0, cols = col_pal) + ggtitle("HC5 016um bins")
+p <- SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, cols = col_pal) + ggtitle("HC5 016um bins")
+p
+#ggsave(plot = p, filename = "HC5_016um_CODA.png", path = plotsdir)
+saveRDS(sobj, file = paste0(objdir,"HC5_016um_CODA_seurObj.RDS"))
+```
+
+# HC6
+```{r}
+rm(sobj)
+rm(meta)
+rm(barcodes)
+rm(CODA_annot)
+
+# read in CODA
+CODA_annot <- as.data.frame(read.csv(paste0(codadir,"CODA Visium HD files 016um v2/H6_16um_Registered_tissue_positions_cellular_compositions.csv")))
+rownames(CODA_annot) <- CODA_annot$X
+CODA_annot <- CODA_annot[, -c(1, 2, 3, 4, 5, 6)]
+
+# load in each object
+sobj <- readRDS(paste0(objdir,"HC6_016um_seurObj.RDS"))
+
+# add assay information to metadata
+barcodes <- colnames(sobj)
+sobj$Assay <- "016"
+meta <- sobj@meta.data
+
+meta <- merge(meta, CODA_annot, by = "row.names")
+
+names(CODA_annot)
+meta$CODA <- "mixed"
+meta$CODA[meta$PDAC >= 75] <- "PDAC"
+meta$CODA[meta$Stroma >= 75] <- "stroma"
+meta$CODA[meta$Immune >= 75] <- "immune"
+meta$CODA[meta$Vasculature >= 75] <- "vasculature"
+meta$CODA[meta$Fat >= 75] <- "fat"
+meta$CODA[meta$Acini >= 75] <- "acini"
+meta$CODA[meta$Islets >= 75] <- "islets"
+meta$CODA[meta$Nerve >= 75] <- "nerve"
+meta$CODA[meta$Duct >= 75] <- "normal duct"
+meta$CODA[meta$PDAC == 0 & 
+                 meta$Stroma == 0 & 
+                 meta$Immune == 0 &
+                 meta$Vasculature == 0 &
+                 meta$Fat == 0 &
+                 meta$Acini == 0 &
+                 meta$Islets == 0 &
+                 meta$Nerve == 0 &
+                 meta$Duct == 0] <- "NA"
+table(meta$CODA)
+
+rownames(meta) <- meta$Row.names
+sobj <- AddMetaData(object = sobj, metadata = meta)
+
+DefaultAssay(sobj) <- "Spatial.016um"
+SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, alpha = 1, image.alpha = 0, cols = col_pal) + ggtitle("HC6 016um bins")
+p <- SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, cols = col_pal) + ggtitle("HC6 016um bins")
+p
+#ggsave(plot = p, filename = "HC6_016um_CODA.png", path = plotsdir)
+saveRDS(sobj, file = paste0(objdir,"HC6_016um_CODA_seurObj.RDS"))
+```
+
+# HC7
+```{r}
+rm(sobj)
+rm(meta)
+rm(barcodes)
+rm(CODA_annot)
+
+# read in CODA
+CODA_annot <- as.data.frame(read.csv(paste0(codadir,"CODA Visium HD files 016um v2/H7_16um_Registered_tissue_positions_cellular_compositions.csv"))) 
+rownames(CODA_annot) <- CODA_annot$X
+CODA_annot <- CODA_annot[, -c(1, 2, 3, 4, 5, 6)]
+
+# load in each object
+sobj <- readRDS(paste0(objdir,"HC7_016um_seurObj.RDS"))
+
+# add assay information to metadata
+barcodes <- colnames(sobj)
+sobj$Assay <- "016"
+meta <- sobj@meta.data
+
+meta <- merge(meta, CODA_annot, by = "row.names")
+
+names(CODA_annot)
+meta$CODA <- "mixed"
+meta$CODA[meta$PDAC >= 75] <- "PDAC"
+meta$CODA[meta$Stroma >= 75] <- "stroma"
+meta$CODA[meta$Immune >= 75] <- "immune"
+meta$CODA[meta$Vasculature >= 75] <- "vasculature"
+meta$CODA[meta$Fat >= 75] <- "fat"
+meta$CODA[meta$Acini >= 75] <- "acini"
+meta$CODA[meta$Islets >= 75] <- "islets"
+meta$CODA[meta$Nerve >= 75] <- "nerve"
+meta$CODA[meta$Duct >= 75] <- "normal duct"
+meta$CODA[meta$PDAC == 0 & 
+                 meta$Stroma == 0 & 
+                 meta$Immune == 0 &
+                 meta$Vasculature == 0 &
+                 meta$Fat == 0 &
+                 meta$Acini == 0 &
+                 meta$Islets == 0 &
+                 meta$Nerve == 0 &
+                 meta$Duct == 0] <- "NA"
+table(meta$CODA)
+
+rownames(meta) <- meta$Row.names
+sobj <- AddMetaData(object = sobj, metadata = meta)
+
+DefaultAssay(sobj) <- "Spatial.016um"
+SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, alpha = 1, image.alpha = 0, cols = col_pal) + ggtitle("HC7 016um bins")
+p <- SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, cols = col_pal) + ggtitle("HC7 016um bins")
+p
+#ggsave(plot = p, filename = "HC7_016um_CODA.png", path = plotsdir)
+saveRDS(sobj, file = paste0(objdir,"HC7_016um_CODA_seurObj.RDS"))
+```
+
+# HC8
+```{r}
+rm(sobj)
+rm(meta)
+rm(barcodes)
+rm(CODA_annot)
+
+# read in CODA
+CODA_annot <- as.data.frame(read.csv(paste0(codadir,"CODA Visium HD files 016um v2/H8_16um_Registered_tissue_positions_cellular_compositions.csv")))
+rownames(CODA_annot) <- CODA_annot$X
+CODA_annot <- CODA_annot[, -c(1, 2, 3, 4, 5, 6)]
+
+# load in each object
+sobj <- readRDS(paste0(objdir,"HC8_016um_seurObj.RDS"))
+
+# add assay information to metadata
+barcodes <- colnames(sobj)
+sobj$Assay <- "016"
+meta <- sobj@meta.data
+
+meta <- merge(meta, CODA_annot, by = "row.names")
+
+names(CODA_annot)
+meta$CODA <- "mixed"
+meta$CODA[meta$PDAC >= 75] <- "PDAC"
+meta$CODA[meta$Stroma >= 75] <- "stroma"
+meta$CODA[meta$Immune >= 75] <- "immune"
+meta$CODA[meta$Vasculature >= 75] <- "vasculature"
+meta$CODA[meta$Fat >= 75] <- "fat"
+meta$CODA[meta$Acini >= 75] <- "acini"
+meta$CODA[meta$Islets >= 75] <- "islets"
+meta$CODA[meta$Nerve >= 75] <- "nerve"
+meta$CODA[meta$Duct >= 75] <- "normal duct"
+meta$CODA[meta$PDAC == 0 &
+                 meta$Stroma == 0 & 
+                 meta$Immune == 0 &
+                 meta$Vasculature == 0 &
+                 meta$Fat == 0 &
+                 meta$Acini == 0 &
+                 meta$Islets == 0 &
+                 meta$Nerve == 0 &
+                 meta$Duct == 0] <- "NA"
+table(meta$CODA)
+
+rownames(meta) <- meta$Row.names
+sobj <- AddMetaData(object = sobj, metadata = meta)
+
+DefaultAssay(sobj) <- "Spatial.016um"
+SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, alpha = 1, image.alpha = 0, cols = col_pal) + ggtitle("HC8 016um bins")
+p <- SpatialDimPlot(sobj, group.by = "CODA", pt.size.factor = 8, cols = col_pal) + ggtitle("HC8 016um bins")
+p
+#ggsave(plot = p, filename = "HC8_016um_CODA.png", path = plotsdir)
+saveRDS(sobj, file = paste0(objdir,"HC8_016um_CODA_seurObj.RDS"))
+```
+
+# Merge Objects
+```{r}
+samples <- c('HC1','HC2','HC3','HC4','HC5','HC6','HC7','HC8')
+HC1 <- readRDS(paste0(objdir,"HC1_016um_CODA_seurObj.RDS"))
+sobj <- merge(HC1, y=c(readRDS(paste0(objdir,"HC2_016um_CODA_seurObj.RDS")),
+                       readRDS(paste0(objdir,"HC3_016um_CODA_seurObj.RDS")),
+                       readRDS(paste0(objdir,"HC4_016um_CODA_seurObj.RDS")),
+                       readRDS(paste0(objdir,"HC5_016um_CODA_seurObj.RDS")),
+                       readRDS(paste0(objdir,"HC6_016um_CODA_seurObj.RDS")),
+                       readRDS(paste0(objdir,"HC7_016um_CODA_seurObj.RDS")),
+                       readRDS(paste0(objdir,"HC8_016um_CODA_seurObj.RDS"))),
+                       add.cell.ids = samples)
+
+sobj$sampleCODA <- paste0(sobj$sample,"_",sobj$CODA)
+sobj$responseType <-ifelse(sobj$sample %in% c('HC1','HC2','HC3','HC4'), "Resistant","Responding")#"Non-Responding","Responding") # change labels to match Andre's
+sobj$responseCODA <- paste0(sobj$CODA,"_",sobj$responseType)
+names(sobj@images) <- unique(sobj$sample) # add image names to each slide for clarity
+#save merged object
+saveRDS(sobj, file = paste0(objdir,"merged_016um_seurObj.RDS")) # change to .rda
+rm(HC1)
+```
+
+```{r}
+sessionInfo()
+```
