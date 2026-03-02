@@ -22,13 +22,9 @@ set.seed(1234)
 ```
 
 ```{r include=FALSE}
-datadir <- "/Users/meredithwetzel/OneDrive - Johns Hopkins/spaceranger/"
-objdir <- "/Users/meredithwetzel/Library/CloudStorage/OneDrive-JohnsHopkins/BTC_DPT_Pilot/objects/"
-plotsdir <- "/Users/meredithwetzel/OneDrive - Johns Hopkins/BTC_DPT_Pilot/plots/"
-# for sharing/publishing
-# datadir <- "../spaceranger/"
-# objdir <- "/projects/btcpilot_visiumhd/objects/final_codeCheck/"
-# plotsdir <- "/projects/btcpilot_visiumhd/plots/final_codeCheck/"
+datadir <- "../spaceranger/"
+objdir <- "/projects/btcpilot_visiumhd/objects/final_codeCheck/"
+plotsdir <- "/projects/btcpilot_visiumhd/plots/final_codeCheck/"
 ```
 
 ```{r}
@@ -67,7 +63,7 @@ saveRDS(sobj, file = paste0(objdir,"HC1_016um_seurObj.RDS"))
 
 ```{r}
 # sample IDs to loop through
-samples <- paste0("HC", 1:8) # we ended up removing samples HC2 and HC6 from analysis due to low quality
+samples <- paste0("HC", 1:8) # we removed samples HC2 and HC6 from analysis due to low quality
 for (s in samples) {
   message("Processing ", s, "...")
 
