@@ -1,0 +1,356 @@
+---
+title: "Visium Standard - L-R Visualizations"
+author: "Meredith Wetzel"
+date: "2025-08-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+rm(list = ls())
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(RColorBrewer)
+library(EnhancedVolcano)
+library(fgsea)
+library(DESeq2)
+library(DT)
+library(ggbiplot)
+library(reshape2)
+library(ggpubr)
+library(SeuratDisk)
+options(future.globals.maxSize = 8000 * 1024^2)
+set.seed(1234)
+```
+
+```{r include=FALSE}
+# obj.dir <- "../objects/"
+obj.dir <- "/projects/btcpilot_visiumhd/objects/"
+```
+
+```{r}
+load(file = paste0(obj.dir,"final_objects/visiumSTD_merged_EPI_VBsubtype_CODAupdated.rda"))
+names(sobj.pdac@images) <- unique(sobj.pdac$sample)
+```
+
+```{r}
+coda.cols <- c(rgb(224,187,228,maxColorValue = 255),rgb(234,0,0,maxColorValue = 255),rgb(255,255,255,maxColorValue = 255),rgb(53,150,54,maxColorValue = 255),rgb(227,172,43,maxColorValue = 255),rgb(0,0,255,maxColorValue = 255),"orange",rgb(247,243,203,maxColorValue = 255),rgb(205,235,204,maxColorValue = 255),rgb(255,255,0,maxColorValue = 255))
+names(coda.cols) <- c('stroma','vasculature','NA','responding','non-responding','normal duct','mixed','islets','nerve','fat')
+rctd.cols <- c('pink2','orange','darkgreen','turquoise3','red','blue','yellow','purple','brown','magenta','cornflowerblue')
+names(rctd.cols) <- c('FIBROBLASTS','PERICYTES','CYCLING DUCTAL','DUCTAL','ENDOCRINE','ACINAR','PLASMA','TNK','B CELLS','CYCLING. MYELOID','MYELOID')
+epi.color <- c("green4","blue2","gold2","pink2")
+names(epi.color) <- c("Basal","Classical","panCAF","Mix")
+caf.color <- c("maroon1", "orange", "darkturquoise")
+names(caf.color) <- c("myCAF", "CAF", "iCAF")
+sub.color <- c("green4","blue2","gold2","pink2","maroon1", "orange", "darkturquoise")
+names(sub.color) <- c("Basal","Classical","panCAF","Mix","myCAF", "CAF", "iCAF")
+broad.cols <- c("red","lightblue3","gold2","pink2")
+names(broad.cols) <- c("PDAC","CAF","panCAF","Mix")
+coda.caf.cols <- c(rgb(53,150,54,maxColorValue = 255),rgb(227,172,43,maxColorValue = 255),"maroon1", "orange", "darkturquoise")
+names(coda.caf.cols) <- c("responding","non-responding","myCAF", "CAF", "iCAF")
+```
+
+```{r fig.height=10, fig.width=10}
+SpatialDimPlot(sobj.pdac, group.by = "CODA", ncol = 2, pt.size.factor = 8, cols = coda.cols)
+```
+
+```{r}
+info <- sobj.pdac@meta.data
+names(info)
+```
+
+```{r}
+SpatialDimPlot(sobj.pdac, group.by = "Type", ncol = 2, pt.size.factor = 8, cols = sub.color)
+```
+
+# Add new type column with panCAF/mixed spots
+
+```{r}
+sobj.pdac_df <- data.frame(Classical = as.numeric(sobj.pdac$classical1),
+                      Basal = as.numeric(sobj.pdac$basal1),
+                      panCAF = as.numeric(sobj.pdac$panCAF1),
+                      Type = "Mix")
+threshold <- 0.2
+sobj.pdac_df$Type <- apply(sobj.pdac_df[, c("Classical", "Basal", "panCAF")], 1, function(x) {
+  diffs <- x - max(x)
+  if (sum(diffs == 0) == 1 && max(x) > threshold &&
+      all(abs(diffs[diffs != 0]) > threshold)) {
+    return(names(x)[which.max(x)])
+  } else {
+    return("Mix")
+  }
+})
+sobj.pdac_df$Type <- factor(sobj.pdac_df$Type, levels = c("Classical", "Basal", "panCAF", "Mix"))
+```
+
+```{r}
+# add annotation to seurat object
+sobj.pdac <- AddMetaData(sobj.pdac, sobj.pdac_df, col.name = "Type")
+```
+
+```{r}
+table(sobj.pdac_df$Type)
+```
+
+```{r fig.height=15, fig.width=10}
+SpatialDimPlot(sobj.pdac, group.by = "Type", ncol = 2, pt.size.factor = 8, image.alpha = 0.5, cols = epi.color)
+```
+
+# Run UMAP Clustering on Epithelial subset
+
+```{r}
+DefaultAssay(sobj.pdac)
+object.list <- SplitObject(sobj.pdac, split.by = "sample")
+features <- SelectIntegrationFeatures(object.list)
+VariableFeatures(sobj.pdac) <- features
+sobj.pdac <- RunPCA(sobj.pdac, features = VariableFeatures(object = sobj.pdac))
+```
+
+```{r}
+DimPlot(sobj.pdac, reduction = "pca")
+DimPlot(sobj.pdac, reduction = "pca", group.by = "Type")
+DimPlot(sobj.pdac, reduction = "pca", group.by = "sample")
+```
+
+```{r}
+sobj.pdac <- FindNeighbors(sobj.pdac, dims = 1:10)
+sobj.pdac <- FindClusters(sobj.pdac, resolution = 0.3)
+```
+
+```{r}
+sobj.pdac <- RunUMAP(sobj.pdac, dims = 1:10)
+```
+
+```{r}
+DimPlot(sobj.pdac, reduction = "umap")
+DimPlot(sobj.pdac, reduction = "umap", group.by = "sample")
+DimPlot(sobj.pdac, reduction = "umap", group.by = "CODA", cols = coda.cols)
+DimPlot(sobj.pdac, reduction = "umap", group.by = "Type", cols = epi.color)
+```
+
+```{r warning=FALSE}
+Idents(sobj.pdac) <- "Type"
+sobj.sub <- subset(sobj.pdac, idents = "panCAF")
+```
+
+```{r}
+SpatialDimPlot(sobj.sub, group.by = "Type", ncol = 2, pt.size.factor = 8, cols = epi.color)
+```
+
+```{r}
+DimPlot(sobj.sub, reduction = "umap", group.by = "Type", cols = epi.color)
+DimPlot(sobj.sub, reduction = "umap", group.by = "CODA", cols = coda.cols)
+DimPlot(sobj.sub, reduction = "umap", group.by = "sample")
+```
+
+```{r}
+# break up spots into responding and non-responding
+Idents(sobj.sub) <- "CODA"
+sobj.sub.R <- subset(sobj.sub, idents = "responding")
+sobj.sub.NR <- subset(sobj.sub, idents = "non-responding")
+```
+
+```{r}
+DimPlot(sobj.sub.R, reduction = "umap", group.by = "Type", cols = epi.color)
+DimPlot(sobj.sub.R, reduction = "umap", group.by = "CODA", cols = coda.cols)
+DimPlot(sobj.sub.R, reduction = "umap", group.by = "sample")
+```
+
+```{r}
+DimPlot(sobj.sub.NR, reduction = "umap", group.by = "Type", cols = epi.color)
+DimPlot(sobj.sub.NR, reduction = "umap", group.by = "CODA", cols = coda.cols)
+DimPlot(sobj.sub.NR, reduction = "umap", group.by = "sample")
+```
+
+# List of interactions to plot
+
+```{r}
+gene_pairs <- c('COL1A1-ITGA1',
+'COL1A1-ITGA10',
+'COL1A1-ITGA11',
+'COL1A1-ITGA2',
+'COL1A1-ITGA3',
+'COL1A1-ITGA9',
+'COL1A1-ITGB1',
+'COL1A1-SDC1',
+'COL1A1-SDC4',
+'COL1A2-ITGA1',
+'COL1A2-ITGA10',
+'COL1A2-ITGA11',
+'COL1A2-ITGA2',
+'COL1A2-ITGA3',
+'COL1A2-ITGA9',
+'COL1A2-ITGB1',
+'COL1A2-SDC1',
+'COL1A2-SDC4',
+'COL6A3-ITGA1',
+'COL6A3-ITGA11',
+'COL6A3-ITGB1',
+'COL6A3-SDC1',
+'COL6A3-SDC4',
+'FN1-ITGA2B',
+'FN1-ITGA3',
+'FN1-ITGA4',
+'FN1-ITGA5',
+'FN1-ITGAV',
+'FN1-ITGB1',
+'FN1-ITGB3',
+'FN1-ITGB6',
+'FN1-ITGB7',
+'FN1-SDC1',
+'FN1-SDC4',
+'THBS2-SDC1',
+'COL6A2-ITGA1',
+'COL6A2-ITGB1',
+'COL6A2-SDC4',
+'COL4A2-ITGA1',
+'COL4A2-ITGA11',
+'COL4A2-ITGB1',
+'COL4A2-SDC4',
+'COL4A1-ITGA1',
+'COL4A1-ITGA11',
+'COL4A1-ITGB1',
+'COL4A1-SDC1',
+'COL4A1-SDC4')
+```
+
+# Responding
+```{r fig.height=4, fig.width=15}
+for (pair in gene_pairs) {
+  genes <- unlist(strsplit(pair, "-"))
+  print(FeaturePlot(sobj.sub.R, features = c(genes[1],genes[2]), blend = TRUE, cols = c("lightgrey","orange2","blue3")))
+}
+```
+
+# Non-Responding
+```{r fig.height=4, fig.width=15}
+for (pair in gene_pairs) {
+  genes <- unlist(strsplit(pair, "-"))
+  print(FeaturePlot(sobj.sub.NR, features = c(genes[1],genes[2]), blend = TRUE, cols = c("lightgrey","orange2","blue3")))
+}
+```
+
+# Violin Plots
+
+```{r}
+# get list of all unique genes to plot
+all_genes <- unlist(strsplit(gene_pairs, "-"))
+unique_genes <- unique(all_genes)
+```
+
+# only PDAC spots classified as panCAF after module scoring (MIXED SPOTS)
+
+```{r fig.height=4, fig.width=4}
+comparisons <- list(c("non-responding","responding"))
+# sobj.sub = only PDAC spots classified as panCAF after module scoring
+for (i in seq_along(unique_genes)) {
+  gene <- unique_genes[i]
+  print(VlnPlot(sobj.sub, features = gene, group.by = "CODA", pt.size = 0, cols = coda.cols) + geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "wilcox.test", comparisons = comparisons, paired = FALSE) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))))
+} 
+```
+
+# all PDAC spots (FROM CODA ANNOTATIONS)
+
+```{r fig.height=4, fig.width=4}
+comparisons <- list(c("non-responding","responding"))
+# sobj.pdac = all PDAC spots
+for (i in seq_along(unique_genes)) {
+  gene <- unique_genes[i]
+  print(VlnPlot(sobj.pdac, features = gene, group.by = "CODA", pt.size = 0, cols = coda.cols) + geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "wilcox.test", comparisons = comparisons, paired = F) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))))
+}
+```
+
+# all PDAC spots (FROM CODA ANNOTATIONS) split by sample and CODA
+
+```{r fig.height=4, fig.width=5}
+# sobj.pdac = all PDAC spots; not just panCAF high
+response.cols <- c('turquoise3','red')
+names(response.cols) <- c('non-responding','responding')
+for (i in seq_along(unique_genes)) {
+  gene <- unique_genes[i]
+  print(VlnPlot(sobj.pdac, features = gene, group.by = "sample", split.by = "CODA", pt.size = 0, cols = response.cols))
+}
+```
+
+
+```{r fig.height=5, fig.width=7}
+sobj.pdac$sample_response <- paste0(sobj.pdac$sample,"_",sobj.pdac$CODA)
+sample_response.cols <- c('turquoise3','red','turquoise3','red','turquoise3','red','turquoise3','red','turquoise3','red','turquoise3','red')
+names(sample_response.cols) <- c('BTC01_non-responding','BTC01_responding','BTC03_non-responding','BTC03_responding','BTC09_non-responding','BTC09_responding','BTC13_non-responding','BTC13_responding')
+comparisons <- list(c('BTC01_non-responding','BTC01_responding'),c('BTC03_non-responding','BTC03_responding'),c('BTC09_non-responding','BTC09_responding'),c('BTC13_non-responding','BTC13_responding'))
+for (i in seq_along(unique_genes)) {
+  p <- VlnPlot(sobj.pdac, features = unique_genes[i], group.by = "sample_response", pt.size = 0, cols = sample_response.cols)+ geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "t.test", comparisons = comparisons, paired = F) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) 
+  print(p)
+}
+```
+
+# BTC01
+```{r fig.height=4, fig.width=4}
+comparisons <- list(c("non-responding","responding"))
+# sobj.pdac = all PDAC spots
+for (i in seq_along(unique_genes)) {
+  gene <- unique_genes[i]
+  print(VlnPlot(sobj.pdac[,sobj.pdac$sample == "BTC01"], features = gene, group.by = "CODA", pt.size = 0, cols = coda.cols) + geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "t.test", comparisons = comparisons, paired = F) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))))
+}
+```
+
+# BTC03
+```{r fig.height=4, fig.width=4}
+comparisons <- list(c("non-responding","responding"))
+# sobj.pdac = all PDAC spots
+for (i in seq_along(unique_genes)) {
+  gene <- unique_genes[i]
+  print(VlnPlot(sobj.pdac[,sobj.pdac$sample == "BTC03"], features = gene, group.by = "CODA", pt.size = 0, cols = coda.cols) + geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "t.test", comparisons = comparisons, paired = F) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))))
+}
+```
+
+# BTC09
+```{r fig.height=4, fig.width=4}
+comparisons <- list(c("non-responding","responding"))
+# sobj.pdac = all PDAC spots
+for (i in seq_along(unique_genes)) {
+  gene <- unique_genes[i]
+  print(VlnPlot(sobj.pdac[,sobj.pdac$sample == "BTC09"], features = gene, group.by = "CODA", pt.size = 0, cols = coda.cols) + geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "t.test", comparisons = comparisons, paired = F) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))))
+}
+```
+
+# BTC13
+```{r fig.height=4, fig.width=4}
+comparisons <- list(c("non-responding","responding"))
+# sobj.pdac = all PDAC spots
+for (i in seq_along(unique_genes)) {
+  gene <- unique_genes[i]
+  print(VlnPlot(sobj.pdac[,sobj.pdac$sample == "BTC13"], features = gene, group.by = "CODA", pt.size = 0, cols = coda.cols) + geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "t.test", comparisons = comparisons, paired = F) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))))
+}
+```
+
+# All samples SDC1 + SDC4 expression plots
+
+```{r fig.height=5, fig.width=5}
+# ALL PDAC SPOTS
+comparisons <- list(c("non-responding","responding"))
+# sobj.pdac = all PDAC spots
+for (i in seq_along(unique_genes)) {
+  gene <- unique_genes[i]
+  print(VlnPlot(sobj.pdac, features = gene, group.by = "CODA", pt.size = 0, cols = coda.cols) + geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "t.test", comparisons = comparisons, paired = F) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))))
+}
+```
+
+```{r}
+# Spots with mixing
+comparisons <- list(c("non-responding","responding"))
+# sobj.sub = mixed PDAC spots
+for (i in seq_along(unique_genes)) {
+  gene <- unique_genes[i]
+print(VlnPlot(sobj.sub, features = gene, group.by = "CODA", pt.size = 0, cols = coda.cols) + geom_boxplot(width=0.1, fill="white") + NoLegend() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),axis.title.x=element_blank(),axis.title.y=element_blank(), legend.title = element_text(size = 8), legend.text = element_text(size = 6), plot.title = element_text(size = 10), axis.text = element_text(size = 8))+ stat_compare_means(method = "t.test", comparisons = comparisons, paired = F) + scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))))
+}
+```
+
+```{r}
+sessionInfo()
+```

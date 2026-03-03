@@ -1,0 +1,152 @@
+---
+title: "BTC DPT Visium STD Cohort - CAF Subtyping with CODA"
+author: "Meredith Wetzel"
+date: "2025-08-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+rm(list = ls())
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(RColorBrewer)
+library(EnhancedVolcano)
+library(fgsea)
+library(DESeq2)
+library(DT)
+library(ggbiplot)
+library(reshape2)
+library(ggpubr)
+library(CoGAPS)
+library(SeuratDisk)
+source(file = "stacked_props_function.R")
+options(future.globals.maxSize = 8000 * 1024^2)
+set.seed(1234)
+```
+
+```{r include=FALSE}
+obj.dir <- "../objects/"
+```
+
+```{r}
+coda.cols <- c('pink2','orange','grey','red','turquoise3','darkgreen','blue','yellow','purple','brown')
+names(coda.cols) <- c('stroma','vasculature','NA','responding','non-responding','normal duct','mixed','islets','nerve','fat')
+
+rctd.cols <- c('pink2','orange','darkgreen','turquoise3','red','blue','yellow','purple','brown','magenta','cornflowerblue')
+names(rctd.cols) <- c('FIBROBLASTS','PERICYTES','CYCLING DUCTAL','DUCTAL','ENDOCRINE','ACINAR','PLASMA','TNK','B CELLS','CYCLING. MYELOID','MYELOID')
+```
+
+```{r}
+load(file = paste0(obj.dir,"BTC01_RCTD_CODA_seurObj.rda"))
+load(file = paste0(obj.dir,"BTC03_RCTD_CODA_seurObj.rda"))
+load(file = paste0(obj.dir,"BTC13_RCTD_CODA_seurObj.rda"))
+load(file = paste0(obj.dir,"BTC09_RCTD_CODA_seurObj.rda"))
+```
+
+```{r}
+info <- BTC01.both@meta.data
+```
+
+```{r}
+BTC01.both$sample <- "BTC01"
+BTC03.both$sample <- "BTC03"
+BTC09.both$sample <- "BTC09"
+BTC13.both$sample <- "BTC13"
+```
+
+```{r}
+# merge samples
+sobj <- merge(BTC01.both, y = c(BTC03.both,BTC09.both,BTC13.both))
+```
+
+```{r}
+info <- sobj@meta.data
+```
+
+```{r fig.height=10, fig.width=10}
+SpatialDimPlot(sobj, group.by = "CODA", ncol = 2, pt.size.factor = 8, cols = coda.cols)
+```
+
+```{r warning=FALSE}
+# subset to just the STROMA
+Idents(sobj) <- 'CODA'
+sobj.caf <- subset(sobj, idents = "stroma")
+```
+
+```{r fig.height=10, fig.width=10}
+SpatialDimPlot(sobj.caf, group.by = "cell_type_rctd", ncol = 2, pt.size.factor = 8, cols = rctd.cols)
+SpatialDimPlot(sobj.caf, group.by = "CODA", ncol = 2, pt.size.factor = 8, cols = coda.cols)
+```
+
+```{r}
+# gene lists
+pancaf_genes <- list(c('LUM','DCN','COL1A1','VIM','CD39','FSP1','FAP','ACTA2','PDPN'))
+iCAF_genes <- list(c('CXCL1','CXCL2','CCL2','CXCL12','PDGFRA','CFD','LMNA','DPT','HAS1','HAS2'))
+myCAF_genes <- list(c('TAGLN','MYL9','TPM2','MMP11','POSTN','HOPX','TWIST1','SOX4'))
+```
+
+```{r}
+sobj.caf <- AddModuleScore(sobj.caf, features = pancaf_genes, name = "panCAF")
+sobj.caf <- AddModuleScore(sobj.caf, features = myCAF_genes, name = "myCAF")
+sobj.caf <- AddModuleScore(sobj.caf, features = iCAF_genes, name = "iCAF")
+```
+
+```{r fig.height=10, fig.width=10}
+SpatialFeaturePlot(sobj.caf, features = "panCAF1", ncol = 2, pt.size.factor = 8)
+SpatialFeaturePlot(sobj.caf, features = "myCAF1", ncol = 2, pt.size.factor = 8)
+SpatialFeaturePlot(sobj.caf, features = "iCAF1", ncol = 2, pt.size.factor = 8)
+```
+
+```{r}
+sobj.caf_df <- data.frame(cbind(sobj.caf$myCAF1, sobj.caf$iCAF1, "CAF"))
+colnames(sobj.caf_df) <- c("myCAF", "iCAF", "Type_CAF")
+id1 <- intersect(which(sobj.caf$iCAF1 < sobj.caf$myCAF1 - 0.2), which(as.numeric(sobj.caf$myCAF1) > 0.2))
+id2 <- intersect(which(sobj.caf$iCAF1 > sobj.caf$myCAF1 + 0.2), which(as.numeric(sobj.caf$iCAF1) > 0.2))
+id3 <- intersect(which(sobj.caf$iCAF1 < sobj.caf$myCAF1 + 0.2), which(sobj.caf$iCAF1 > sobj.caf$myCAF1 - 0.2))
+sobj.caf_df$Type_CAF[id1] <- "myCAF"
+sobj.caf_df$Type_CAF[id2] <- "iCAF"
+sobj.caf_df$Type_CAF[id3] <- "CAF"
+sobj.caf_df$myCAF <- as.numeric(sobj.caf_df$myCAF)
+sobj.caf_df$iCAF <- as.numeric(sobj.caf_df$iCAF)
+sobj.caf_df$Type_CAF <- factor(sobj.caf_df$Type_CAF, levels = c("myCAF", "CAF", "iCAF"))
+```
+
+```{r}
+# add annotation to seurat object
+sobj.caf <- AddMetaData(sobj.caf, sobj.caf_df, col.name = "Type_CAF")
+```
+
+```{r}
+table(sobj.caf_df$Type_CAF)
+```
+
+```{r}
+#plotting color scheme
+type.color <- c("maroon1", "orange", "darkturquoise")
+names(type.color) <- c("myCAF", "CAF", "iCAF")
+```
+
+```{r fig.height=10, fig.width=10}
+SpatialDimPlot(sobj.caf, group.by = "Type_CAF", ncol = 2, pt.size.factor = 8, image.alpha = 0.5, cols = type.color)
+```
+
+```{r fig.height=4, fig.width=4}
+props <- stack_cell_porportions(sobj.caf, group.by.x = "sample", group.by.stack = "Type_CAF")
+plot_stack(props, group.by.x = "sample", group.by.stack = "Type_CAF") + scale_fill_manual(values = type.color)
+```
+
+```{r}
+# save objects
+save(sobj.caf, file = paste0(obj.dir,"final_objects/visiumSTD_merged_CAF_VBsubtype_CODAupdated.rda"))
+save(sobj, file = paste0(obj.dir,"final_objects/visiumSTD_merged_CODAupdated.rda"))
+```
+
+```{r}
+sessionInfo()
+```

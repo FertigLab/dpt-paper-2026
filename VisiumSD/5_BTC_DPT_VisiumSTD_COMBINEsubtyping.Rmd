@@ -1,0 +1,135 @@
+---
+title: "Combine Subtype Annotations"
+author: "Meredith Wetzel"
+date: "2025-08-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+rm(list = ls())
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(RColorBrewer)
+library(EnhancedVolcano)
+library(fgsea)
+library(DESeq2)
+library(DT)
+library(ggbiplot)
+library(reshape2)
+library(ggpubr)
+library(SeuratDisk)
+source(file = "../stacked_props_function.R")
+options(future.globals.maxSize = 8000 * 1024^2)
+set.seed(1234)
+```
+
+```{r include=FALSE}
+obj.dir <- "../objects/"
+```
+
+```{r}
+load(file = paste0(obj.dir,"final_objects/visiumSTD_merged_CODAupdated.rda"))
+load(file = paste0(obj.dir,"final_objects/visiumSTD_merged_EPI_VBsubtype_CODAupdated.rda"))
+load(file = paste0(obj.dir,"final_objects/visiumSTD_merged_CAF_VBsubtype_CODAupdated.rda"))
+
+names(sobj.pdac@images) <- unique(sobj.pdac$sample)
+names(sobj@images) <- unique(sobj$sample)
+names(sobj.caf@images) <- unique(sobj.caf$sample)
+```
+
+```{r}
+rctd.cols <- c('pink2','orange','darkgreen','turquoise3','red','blue','yellow','purple','brown','magenta','cornflowerblue')
+names(rctd.cols) <- c('FIBROBLASTS','PERICYTES','CYCLING DUCTAL','DUCTAL','ENDOCRINE','ACINAR','PLASMA','TNK','B CELLS','CYCLING. MYELOID','MYELOID')
+epi.color <- c("green4","blue2","mediumpurple1")
+names(epi.color) <- c("Basal","Classical","Intermediate")
+caf.color <- c("maroon1", "orange", "darkturquoise")
+names(caf.color) <- c("myCAF", "CAF", "iCAF")
+sub.color <- c("green4","blue2","mediumpurple1","maroon1", "orange", "darkturquoise")
+names(sub.color) <- c("Basal","Classical","Intermediate","myCAF", "CAF", "iCAF")
+broad.cols <- c("red","lightblue3")
+names(broad.cols) <- c("PDAC","CAF")
+coda.caf.cols <- c(rgb(53,150,54,maxColorValue = 255),rgb(227,172,43,maxColorValue = 255),"maroon1", "orange", "darkturquoise")
+names(coda.caf.cols) <- c("responding","non-responding","myCAF", "CAF", "iCAF")
+# Andre's color schema from CODA:
+# RGB Colormap: 
+# Resistant PDAC: 227 172 43
+rgb(227,172,43,maxColorValue = 255)
+# Stroma: 224 187 228
+rgb(224,187,228,maxColorValue = 255)
+# Immune: 0 30 30
+rgb(0,30,30,maxColorValue = 255)
+# Vasculature: 234 0 0
+rgb(234,0,0,maxColorValue = 255)
+# Fat: 255 255 0
+rgb(255,255,0,maxColorValue = 255)
+# Non-tissue: 255 255 255
+rgb(255,255,255,maxColorValue = 255)
+# Acini: 149 35 184
+rgb(149,35,184,maxColorValue = 255)
+# Islets: 247 243 203
+rgb(247,243,203,maxColorValue = 255)
+# Nerve: 205 235 204
+rgb(205,235,204,maxColorValue = 255)
+# Duct: 0 0 255
+rgb(0,0,255,maxColorValue = 255)
+# Responsive PDAC: 53 150 54
+rgb(53,150,54,maxColorValue = 255)
+# Endothelium: 160 30 120
+rgb(160,30,120,maxColorValue = 255)
+
+coda.cols <- c(rgb(224,187,228,maxColorValue = 255),rgb(234,0,0,maxColorValue = 255),rgb(255,255,255,maxColorValue = 255),rgb(53,150,54,maxColorValue = 255),rgb(227,172,43,maxColorValue = 255),rgb(0,0,255,maxColorValue = 255),"orange",rgb(247,243,203,maxColorValue = 255),rgb(205,235,204,maxColorValue = 255),rgb(255,255,0,maxColorValue = 255))
+names(coda.cols) <- c('stroma','vasculature','NA','responding','non-responding','normal duct','mixed','islets','nerve','fat')
+```
+
+```{r fig.height=10, fig.width=10}
+SpatialDimPlot(sobj, group.by = "CODA", ncol = 2, pt.size.factor = 8, cols = coda.cols)
+SpatialDimPlot(sobj.pdac, group.by = "Type", ncol = 2, pt.size.factor = 8, cols = epi.color)
+SpatialDimPlot(sobj.caf, group.by = "Type_CAF", ncol = 2, pt.size.factor = 8, cols = caf.color)
+```
+
+# Add labels from subsetted objects to whole
+```{r}
+# cafs
+ind = match(rownames(sobj.caf@meta.data), rownames(sobj@meta.data))
+sobj@meta.data[ind, "Type_CAF"] = as.character(sobj.caf@meta.data[, "Type_CAF"])
+```
+
+```{r}
+# epithelial
+ind = match(rownames(sobj.pdac@meta.data), rownames(sobj@meta.data))
+sobj@meta.data[ind, "Type"] = as.character(sobj.pdac@meta.data[, "Type"])
+```
+
+# combine all subtype annotations together
+```{r}
+sobj$all_subtypes <- ifelse(
+  !is.na(sobj$Type), sobj$Type,
+  ifelse(
+    !is.na(sobj$Type_CAF), sobj$Type_CAF,
+    sobj$Type_CAF
+  )
+)
+```
+
+```{r fig.height=10, fig.width=10, warning=FALSE}
+SpatialDimPlot(sobj[,sobj$CODA %in% c("stroma","responding","non-responding")], group.by = "all_subtypes", ncol = 2, pt.size.factor = 8, cols = sub.color)
+```
+
+```{r fig.height=4, fig.width=4}
+props <- stack_cell_porportions(sobj[,sobj$CODA %in% c("stroma","responding","non-responding")], group.by.x = "sample", group.by.stack = "all_subtypes")
+plot_stack(props, group.by.x = "sample", group.by.stack = "all_subtypes") + scale_fill_manual(values = sub.color)
+```
+
+```{r}
+save(sobj, file = paste0(obj.dir,"final_objects/visiumSTD_merged_allSubtypes_CODAupdated_FINAL.rda"))
+```
+
+```{r}
+sessionInfo()
+```

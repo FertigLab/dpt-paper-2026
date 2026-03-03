@@ -1,0 +1,461 @@
+---
+title: "BTC CytAssist Pilot"
+author: "LTKAGOHARA"
+date: "2024-02-26"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# VISIUM DATA ANALYSIS WITH SEURAT
+# Sample BTC01 (pilot)
+
+##### Setting working directory
+```{r}
+setwd("~/OneDrive - Johns Hopkins/Visium_BTC_DPT/BTC_Dec2023/")
+```
+
+##### Loading packages
+```{r}
+library(Seurat)
+library(ggplot2)
+library(leiden)
+library(patchwork)
+library(dplyr)
+library(rhdf5)
+library(ggrepel)
+library(Rfast2)
+library(EnhancedVolcano)
+library(fgsea)
+library(msigdbr)
+library(RColorBrewer)
+library(ggpubr)
+library(ComplexHeatmap)
+library(DESeq2)
+```
+
+## Increasing the allowed memory to avoid errors regarding lack of memory
+```{r}
+set.seed(1234)
+options(future.globals.maxSize = 1024 * 1024 * 1024)  # 1 GB
+```
+
+## Loading the data for sample BTC01
+```{r}
+set.seed(1234)
+BTC01 <- Load10X_Spatial("BTC_DPTpilot1_spaceranger/BTC01/")
+dim(BTC01)
+head(BTC01@meta.data)
+```
+
+## INTEGRATING CODA CELL CLASSIFICATION INTO METADATA
+```{r}
+set.seed(1234)
+
+# extract BTC01 metadata
+BTC01metadata <- BTC01@meta.data
+
+# uploading CODA annotations
+codaBTC01 <- as.data.frame(read.csv("Analysis_pilot/BTC01/tissue_positions_cellular_compositions.csv"))
+rownames(codaBTC01) <- codaBTC01$X
+codaBTC01 <- codaBTC01[, -c(1, 2, 3, 4, 5, 6)]
+head(codaBTC01)
+
+# merging CODA annotations ot metadata
+BTC01metadata <- merge(BTC01metadata, codaBTC01, by = "row.names")
+
+BTC01metadata$CODA <- "mixed"
+BTC01metadata$CODA[BTC01metadata$RespondingPDAC > 51] <- "responding"
+BTC01metadata$CODA[BTC01metadata$NonrespondingPDAC > 51] <- "non-responding"
+BTC01metadata$CODA[BTC01metadata$Stroma > 51] <- "stroma"
+BTC01metadata$CODA[BTC01metadata$Immune > 51] <- "immune"
+BTC01metadata$CODA[BTC01metadata$Vasculature > 51] <- "vasculature"
+BTC01metadata$CODA[BTC01metadata$Fat > 51] <- "fat"
+BTC01metadata$CODA[BTC01metadata$Acini > 51] <- "acini"
+BTC01metadata$CODA[BTC01metadata$Islets > 51] <- "islets"
+BTC01metadata$CODA[BTC01metadata$Nerve > 51] <- "nerve"
+BTC01metadata$CODA[BTC01metadata$Duct > 51] <- "normal duct"
+BTC01metadata$CODA[BTC01metadata$RespondingPDAC == 0 & 
+                 BTC01metadata$NonrespondingPDAC == 0 & 
+                 BTC01metadata$Stroma == 0 & 
+                 BTC01metadata$Immune == 0 &
+                 BTC01metadata$Vasculature == 0 &
+                 BTC01metadata$Fat == 0 &
+                 BTC01metadata$Acini == 0 &
+                 BTC01metadata$Islets == 0 &
+                 BTC01metadata$Nerve == 0 &
+                 BTC01metadata$Duct == 0] <- "NA"
+table(BTC01metadata$CODA)
+
+BTC01 <- AddMetaData(object = BTC01, metadata = BTC01metadata)
+head(BTC01)
+```
+
+##### saving object with CODA classification
+```{r}
+save(BTC01, file = "Analysis_pilot/BTC01/BTC01_CODA.Rda")
+```
+
+# DATA PREPROCESSING
+
+## QC and filtering
+```{r}
+set.seed(1234)
+
+load("Analysis_pilot/BTC01/BTC01_CODA.Rda")
+
+# proportion of mitochondrial reads
+BTC01[["percent_mt"]] <- PercentageFeatureSet(BTC01, pattern = "^MT-")
+head(BTC01@meta.data)
+
+VlnPlot(BTC01, features = c("nFeature_Spatial", "nCount_Spatial", "percent_mt"), ncol = 3)
+ggsave("Analysis_pilot/BTC01/BTC01_QC1.png")
+
+plot1 <- FeatureScatter(BTC01, feature1 = "nCount_Spatial", feature2 = "percent_mt")
+plot2 <- FeatureScatter(BTC01, feature1 = "nCount_Spatial", feature2 = "nFeature_Spatial")
+plot1 | plot2
+ggsave("Analysis_pilot/BTC01/BTC01_QC2.png")
+
+# plots to verify the variance in counts across spots
+plot3 <- VlnPlot(BTC01, features = "nCount_Spatial", pt.size = 0.1) + NoLegend()
+plot4 <- SpatialFeaturePlot(BTC01, features = "nCount_Spatial", pt.size.factor = 7) + theme(legend.position = "right")
+plot3 | plot4
+ggsave("Analysis_pilot/BTC01/BTC01_QC3.png")
+
+# NOTE: data looks good quality and spots were not filtered out of the analysis
+```
+
+##### saving filtered dataset
+```{r}
+save(BTC01, file = "Analysis_pilot/BTC01/BTC01_filtered.Rda")
+```
+
+## NORMALIZATION WITH SCTransform
+```{r}
+set.seed(1234)
+
+load("Analysis_pilot/BTC01/BTC01_filtered.Rda")
+
+BTC01 <- SCTransform(BTC01, assay = "Spatial", vars.to.regress = "percent_mt",verbose = F)
+```
+
+##### saving SCTransformed data
+```{r}
+save(BTC01, file = "Analysis_pilot/BTC01/BTC01_SCTransformed.Rda")
+```
+
+## Loading the data for sample BTC03
+```{r}
+set.seed(1234)
+BTC03 <- Load10X_Spatial("BTC_DPTpilot1_spaceranger/BTC03/")
+dim(BTC03)
+head(BTC03@meta.data)
+```
+
+## INTEGRATING CODA CELL CLASSIFICATION INTO METADATA
+```{r}
+set.seed(1234)
+
+# extract BTC03 metadata
+BTC03metadata <- BTC03@meta.data
+
+# uploading CODA annotations
+codaBTC03 <- as.data.frame(read.csv("Analysis_pilot/BTC03/tissue_positions_cellular_compositions.csv"))
+rownames(codaBTC03) <- codaBTC03$X
+codaBTC03 <- codaBTC03[, -c(1, 2, 3, 4, 5, 6)]
+head(codaBTC03)
+
+# merging CODA annotations ot metadata
+BTC03metadata <- merge(BTC03metadata, codaBTC03, by = "row.names")
+
+BTC03metadata$CODA <- "mixed"
+BTC03metadata$CODA[BTC03metadata$RespondingPDAC > 51] <- "responding"
+BTC03metadata$CODA[BTC03metadata$NonrespondingPDAC > 51] <- "non-responding"
+BTC03metadata$CODA[BTC03metadata$Stroma > 51] <- "stroma"
+BTC03metadata$CODA[BTC03metadata$Immune > 51] <- "immune"
+BTC03metadata$CODA[BTC03metadata$Vasculature > 51] <- "vasculature"
+BTC03metadata$CODA[BTC03metadata$Fat > 51] <- "fat"
+BTC03metadata$CODA[BTC03metadata$Acini > 51] <- "acini"
+BTC03metadata$CODA[BTC03metadata$Islets > 51] <- "islets"
+BTC03metadata$CODA[BTC03metadata$Nerve > 51] <- "nerve"
+BTC03metadata$CODA[BTC03metadata$Duct > 51] <- "normal duct"
+BTC03metadata$CODA[BTC03metadata$RespondingPDAC == 0 & 
+                 BTC03metadata$NonrespondingPDAC == 0 & 
+                 BTC03metadata$Stroma == 0 & 
+                 BTC03metadata$Immune == 0 &
+                 BTC03metadata$Vasculature == 0 &
+                 BTC03metadata$Fat == 0 &
+                 BTC03metadata$Acini == 0 &
+                 BTC03metadata$Islets == 0 &
+                 BTC03metadata$Nerve == 0 &
+                 BTC03metadata$Duct == 0] <- "NA"
+table(BTC03metadata$CODA)
+
+BTC03 <- AddMetaData(object = BTC03, metadata = BTC03metadata)
+head(BTC03)
+```
+
+##### saving object with CODA classification
+```{r}
+save(BTC03, file = "Analysis_pilot/BTC03/BTC03_CODA.Rda")
+```
+
+# DATA PREPROCESSING
+
+## QC and filtering
+```{r}
+set.seed(1234)
+
+load("Analysis_pilot/BTC03/BTC03_CODA.Rda")
+
+# proportion of mitochondrial reads
+BTC03[["percent_mt"]] <- PercentageFeatureSet(BTC03, pattern = "^MT-")
+head(BTC03@meta.data)
+
+VlnPlot(BTC03, features = c("nFeature_Spatial", "nCount_Spatial", "percent_mt"), ncol = 3)
+ggsave("Analysis_pilot/BTC03/BTC03_QC1.png")
+
+plot1 <- FeatureScatter(BTC03, feature1 = "nCount_Spatial", feature2 = "percent_mt")
+plot2 <- FeatureScatter(BTC03, feature1 = "nCount_Spatial", feature2 = "nFeature_Spatial")
+plot1 | plot2
+ggsave("Analysis_pilot/BTC03/BTC03_QC2.png")
+
+# plots to verify the variance in counts across spots
+plot3 <- VlnPlot(BTC03, features = "nCount_Spatial", pt.size = 0.1) + NoLegend()
+plot4 <- SpatialFeaturePlot(BTC03, features = "nCount_Spatial", pt.size.factor = 7) + theme(legend.position = "right")
+plot3 | plot4
+ggsave("Analysis_pilot/BTC03/BTC03_QC3.png")
+
+# NOTE: data looks good quality and spots were not filtered out of the analysis
+```
+
+##### saving filtered dataset
+```{r}
+save(BTC03, file = "Analysis_pilot/BTC03/BTC03_filtered.Rda")
+```
+
+## NORMALIZATION WITH SCTransform
+```{r}
+set.seed(1234)
+
+load("Analysis_pilot/BTC03/BTC03_filtered.Rda")
+
+BTC03 <- SCTransform(BTC03, assay = "Spatial", vars.to.regress = "percent_mt",verbose = F)
+```
+
+##### saving SCTransformed data
+```{r}
+save(BTC03, file = "Analysis_pilot/BTC03/BTC03_SCTransformed.Rda")
+```
+
+## Loading the data for sample BTC09
+```{r}
+set.seed(1234)
+BTC09 <- Load10X_Spatial("BTC_DPTpilot1_spaceranger/BTC09/")
+dim(BTC09)
+head(BTC09@meta.data)
+```
+
+## INTEGRATING CODA CELL CLASSIFICATION INTO METADATA
+```{r}
+set.seed(1234)
+
+# extract BTC09 metadata
+BTC09metadata <- BTC09@meta.data
+
+# uploading CODA annotations
+codaBTC09 <- as.data.frame(read.csv("Analysis_pilot/BTC09/tissue_positions_cellular_compositions.csv"))
+rownames(codaBTC09) <- codaBTC09$X
+codaBTC09 <- codaBTC09[, -c(1, 2, 3, 4, 5, 6)]
+head(codaBTC09)
+
+# merging CODA annotations ot metadata
+BTC09metadata <- merge(BTC09metadata, codaBTC09, by = "row.names")
+
+BTC09metadata$CODA <- "mixed"
+BTC09metadata$CODA[BTC09metadata$RespondingPDAC > 51] <- "responding"
+BTC09metadata$CODA[BTC09metadata$NonrespondingPDAC > 51] <- "non-responding"
+BTC09metadata$CODA[BTC09metadata$Stroma > 51] <- "stroma"
+BTC09metadata$CODA[BTC09metadata$Immune > 51] <- "immune"
+BTC09metadata$CODA[BTC09metadata$Vasculature > 51] <- "vasculature"
+BTC09metadata$CODA[BTC09metadata$Fat > 51] <- "fat"
+BTC09metadata$CODA[BTC09metadata$Acini > 51] <- "acini"
+BTC09metadata$CODA[BTC09metadata$Islets > 51] <- "islets"
+BTC09metadata$CODA[BTC09metadata$Nerve > 51] <- "nerve"
+BTC09metadata$CODA[BTC09metadata$Duct > 51] <- "normal duct"
+BTC09metadata$CODA[BTC09metadata$RespondingPDAC == 0 & 
+                 BTC09metadata$NonrespondingPDAC == 0 & 
+                 BTC09metadata$Stroma == 0 & 
+                 BTC09metadata$Immune == 0 &
+                 BTC09metadata$Vasculature == 0 &
+                 BTC09metadata$Fat == 0 &
+                 BTC09metadata$Acini == 0 &
+                 BTC09metadata$Islets == 0 &
+                 BTC09metadata$Nerve == 0 &
+                 BTC09metadata$Duct == 0] <- "NA"
+table(BTC09metadata$CODA)
+
+BTC09 <- AddMetaData(object = BTC09, metadata = BTC09metadata)
+head(BTC09)
+```
+
+##### saving object with CODA classification
+```{r}
+save(BTC09, file = "Analysis_pilot/BTC09/BTC09_CODA.Rda")
+```
+
+# DATA PREPROCESSING
+
+## QC and filtering
+```{r}
+set.seed(1234)
+
+load("Analysis_pilot/BTC09/BTC09_CODA.Rda")
+
+# proportion of mitochondrial reads
+BTC09[["percent_mt"]] <- PercentageFeatureSet(BTC09, pattern = "^MT-")
+head(BTC09@meta.data)
+
+VlnPlot(BTC09, features = c("nFeature_Spatial", "nCount_Spatial", "percent_mt"), ncol = 3)
+ggsave("Analysis_pilot/BTC09/BTC09_QC1.png")
+
+plot1 <- FeatureScatter(BTC09, feature1 = "nCount_Spatial", feature2 = "percent_mt")
+plot2 <- FeatureScatter(BTC09, feature1 = "nCount_Spatial", feature2 = "nFeature_Spatial")
+plot1 | plot2
+ggsave("Analysis_pilot/BTC09/BTC09_QC2.png")
+
+# plots to verify the variance in counts across spots
+plot3 <- VlnPlot(BTC09, features = "nCount_Spatial", pt.size = 0.1) + NoLegend()
+plot4 <- SpatialFeaturePlot(BTC09, features = "nCount_Spatial", pt.size.factor = 7) + theme(legend.position = "right")
+plot3 | plot4
+ggsave("Analysis_pilot/BTC09/BTC09_QC3.png")
+
+# NOTE: data looks good quality and spots were not filtered out of the analysis
+```
+
+##### saving filtered dataset
+```{r}
+save(BTC09, file = "Analysis_pilot/BTC09/BTC09_filtered.Rda")
+```
+
+## NORMALIZATION WITH SCTransform
+```{r}
+set.seed(1234)
+
+load("Analysis_pilot/BTC09/BTC09_filtered.Rda")
+
+BTC09 <- SCTransform(BTC09, assay = "Spatial", vars.to.regress = "percent_mt",verbose = F)
+```
+
+##### saving SCTransformed data
+```{r}
+save(BTC09, file = "Analysis_pilot/BTC09/BTC09_SCTransformed.Rda")
+```
+
+## Loading the data for sample BTC13
+```{r}
+set.seed(1234)
+BTC13 <- Load10X_Spatial("BTC_DPTpilot1_spaceranger/BTC13/")
+dim(BTC13)
+head(BTC13@meta.data)
+```
+
+## INTEGRATING CODA CELL CLASSIFICATION INTO METADATA
+```{r}
+set.seed(1234)
+
+# extract BTC13 metadata
+BTC13metadata <- BTC13@meta.data
+
+# uploading CODA annotations
+codaBTC13 <- as.data.frame(read.csv("Analysis_pilot/BTC13/tissue_positions_cellular_compositions.csv"))
+rownames(codaBTC13) <- codaBTC13$X
+codaBTC13 <- codaBTC13[, -c(1, 2, 3, 4, 5, 6)]
+head(codaBTC13)
+
+# merging CODA annotations ot metadata
+BTC13metadata <- merge(BTC13metadata, codaBTC13, by = "row.names")
+
+BTC13metadata$CODA <- "mixed"
+BTC13metadata$CODA[BTC13metadata$RespondingPDAC > 51] <- "responding"
+BTC13metadata$CODA[BTC13metadata$NonrespondingPDAC > 51] <- "non-responding"
+BTC13metadata$CODA[BTC13metadata$Stroma > 51] <- "stroma"
+BTC13metadata$CODA[BTC13metadata$Immune > 51] <- "immune"
+BTC13metadata$CODA[BTC13metadata$Vasculature > 51] <- "vasculature"
+BTC13metadata$CODA[BTC13metadata$Fat > 51] <- "fat"
+BTC13metadata$CODA[BTC13metadata$Acini > 51] <- "acini"
+BTC13metadata$CODA[BTC13metadata$Islets > 51] <- "islets"
+BTC13metadata$CODA[BTC13metadata$Nerve > 51] <- "nerve"
+BTC13metadata$CODA[BTC13metadata$Duct > 51] <- "normal duct"
+BTC13metadata$CODA[BTC13metadata$RespondingPDAC == 0 & 
+                 BTC13metadata$NonrespondingPDAC == 0 & 
+                 BTC13metadata$Stroma == 0 & 
+                 BTC13metadata$Immune == 0 &
+                 BTC13metadata$Vasculature == 0 &
+                 BTC13metadata$Fat == 0 &
+                 BTC13metadata$Acini == 0 &
+                 BTC13metadata$Islets == 0 &
+                 BTC13metadata$Nerve == 0 &
+                 BTC13metadata$Duct == 0] <- "NA"
+table(BTC13metadata$CODA)
+
+BTC13 <- AddMetaData(object = BTC13, metadata = BTC13metadata)
+head(BTC13)
+```
+
+##### saving object with CODA classification
+```{r}
+save(BTC13, file = "Analysis_pilot/BTC13/BTC13_CODA.Rda")
+```
+
+# DATA PREPROCESSING
+
+## QC and filtering
+```{r}
+set.seed(1234)
+
+load("Analysis_pilot/BTC13/BTC13_CODA.Rda")
+
+# proportion of mitochondrial reads
+BTC13[["percent_mt"]] <- PercentageFeatureSet(BTC13, pattern = "^MT-")
+head(BTC13@meta.data)
+
+VlnPlot(BTC13, features = c("nFeature_Spatial", "nCount_Spatial", "percent_mt"), ncol = 3)
+ggsave("Analysis_pilot/BTC13/BTC13_QC1.png")
+
+plot1 <- FeatureScatter(BTC13, feature1 = "nCount_Spatial", feature2 = "percent_mt")
+plot2 <- FeatureScatter(BTC13, feature1 = "nCount_Spatial", feature2 = "nFeature_Spatial")
+plot1 | plot2
+ggsave("Analysis_pilot/BTC13/BTC13_QC2.png")
+
+# plots to verify the variance in counts across spots
+plot3 <- VlnPlot(BTC13, features = "nCount_Spatial", pt.size = 0.1) + NoLegend()
+plot4 <- SpatialFeaturePlot(BTC13, features = "nCount_Spatial", pt.size.factor = 7) + theme(legend.position = "right")
+plot3 | plot4
+ggsave("Analysis_pilot/BTC13/BTC13_QC3.png")
+
+# NOTE: data looks good quality and spots were not filtered out of the analysis
+```
+
+##### saving filtered dataset
+```{r}
+save(BTC13, file = "Analysis_pilot/BTC13/BTC13_filtered.Rda")
+```
+
+## NORMALIZATION WITH SCTransform
+```{r}
+set.seed(1234)
+
+load("Analysis_pilot/BTC13/BTC13_filtered.Rda")
+
+BTC13 <- SCTransform(BTC13, assay = "Spatial", vars.to.regress = "percent_mt",verbose = F)
+```
+
+##### saving SCTransformed data
+```{r}
+save(BTC13, file = "Analysis_pilot/BTC13/BTC13_SCTransformed.Rda")
+```
+
+```{r}
+sessionInfo()
+```

@@ -1,0 +1,190 @@
+---
+title: "BTC DPT Visium STD Cohort - Add RCTD"
+author: "Meredith Wetzel"
+date: "2025-06-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+rm(list = ls())
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(RColorBrewer)
+library(EnhancedVolcano)
+library(fgsea)
+library(DESeq2)
+library(DT)
+library(ggbiplot)
+library(reshape2)
+library(ggpubr)
+library(CoGAPS)
+library(SeuratDisk)
+options(future.globals.maxSize = 8000 * 1024^2)
+set.seed(1234)
+```
+
+```{r include=FALSE}
+obj.dir <- "../objects/"
+```
+
+```{r}
+coda.cols <- c('pink2','orange','grey','red','turquoise3','darkgreen','blue','yellow','purple','brown')
+names(coda.cols) <- c('stroma','vasculature','NA','responding','non-responding','normal duct','mixed','islets','nerve','fat')
+
+rctd.cols <- c('pink2','orange','darkgreen','turquoise3','red','blue','yellow','purple','brown','magenta','cornflowerblue')
+names(rctd.cols) <- c('FIBROBLASTS','PERICYTES','CYCLING DUCTAL','DUCTAL','ENDOCRINE','ACINAR','PLASMA','TNK','B CELLS','CYCLING. MYELOID','MYELOID')
+```
+
+```{r}
+# load in metadata
+combined.meta <- read.csv2(file = paste0(obj.dir,"cirro/updated_combined_rctd_metadata.csv"), sep = ",", col.names = c("barcodes","in_tissue","cell_type_rctd","sample_name","sample_type"))
+combined.meta.std <- combined.meta[combined.meta$sample_name == "BTC01_visium",]
+```
+
+# BTC01
+
+```{r}
+load(file = paste0(obj.dir,"cirro/BTC01_SCTransformed.Rda"))
+info <- BTC01@meta.data
+```
+
+```{r}
+SpatialDimPlot(BTC01, group.by = "CODA", pt.size.factor = 7, cols = coda.cols)
+SpatialDimPlot(BTC01, group.by = "CODA", pt.size.factor = 7)
+```
+
+```{r}
+info$barcodes <- paste0(info$Row.names,"-0")
+merged <- merge(info, combined.meta.std, by = "barcodes")
+```
+
+```{r}
+BTC01.both <- AddMetaData(BTC01,metadata = merged)
+```
+
+```{r}
+SpatialDimPlot(BTC01.both, group.by = "cell_type_rctd", pt.size.factor = 7, cols = rctd.cols)
+SpatialDimPlot(BTC01.both, group.by = "cell_type_rctd", pt.size.factor = 7)
+```
+
+```{r}
+# save merged object
+save(BTC01.both, file = paste0(obj.dir,"BTC01_RCTD_CODA_seurObj.rda"))
+```
+
+# BTC03
+
+```{r}
+rm(info)
+rm(combined.meta.std)
+combined.meta.std <- combined.meta[combined.meta$sample_name == "BTC03_visium",]
+load(file = paste0(obj.dir,"cirro/BTC03_SCTransformed.Rda"))
+info <- BTC03@meta.data
+```
+
+```{r}
+SpatialDimPlot(BTC03, group.by = "CODA", pt.size.factor = 9, cols = coda.cols)
+SpatialDimPlot(BTC03, group.by = "CODA", pt.size.factor = 9)
+```
+
+```{r}
+info$barcodes <- paste0(info$Row.names,"-1")
+merged <- merge(info, combined.meta.std, by = "barcodes")
+```
+
+```{r}
+BTC03.both <- AddMetaData(BTC03,metadata = merged)
+```
+
+```{r}
+SpatialDimPlot(BTC03.both, group.by = "cell_type_rctd", pt.size.factor = 9, cols = rctd.cols)
+SpatialDimPlot(BTC03.both, group.by = "cell_type_rctd", pt.size.factor = 9)
+```
+
+```{r}
+# save merged object
+save(BTC03.both, file = paste0(obj.dir,"BTC03_RCTD_CODA_seurObj.rda"))
+```
+
+# BTC09
+
+```{r}
+rm(info)
+rm(combined.meta.std)
+combined.meta.std <- combined.meta[combined.meta$sample_name == "BTC09_visium",]
+load(file = paste0(obj.dir,"cirro/BTC09_SCTransformed.Rda"))
+info <- BTC09@meta.data
+```
+
+```{r}
+SpatialDimPlot(BTC09, group.by = "CODA", pt.size.factor = 9, cols = coda.cols)
+SpatialDimPlot(BTC09, group.by = "CODA", pt.size.factor = 9)
+```
+
+```{r}
+info$barcodes <- paste0(info$Row.names,"-2")
+merged <- merge(info, combined.meta.std, by = "barcodes")
+```
+
+```{r}
+BTC09.both <- AddMetaData(BTC09,metadata = merged)
+```
+
+```{r}
+SpatialDimPlot(BTC09.both, group.by = "cell_type_rctd", pt.size.factor = 9, cols = rctd.cols)
+SpatialDimPlot(BTC09.both, group.by = "cell_type_rctd", pt.size.factor = 9)
+```
+
+```{r}
+# save merged object
+save(BTC09.both, file = paste0(obj.dir,"BTC09_RCTD_CODA_seurObj.rda"))
+```
+
+# BTC13
+
+```{r}
+rm(info)
+rm(combined.meta.std)
+combined.meta.std <- combined.meta[combined.meta$sample_name == "BTC13_visium",]
+load(file = paste0(obj.dir,"cirro/BTC13_SCTransformed.Rda"))
+info <- BTC13@meta.data
+```
+
+```{r}
+SpatialDimPlot(BTC13, group.by = "CODA", pt.size.factor = 7, cols = coda.cols)
+SpatialDimPlot(BTC13, group.by = "CODA", pt.size.factor = 7)
+```
+
+```{r}
+info$barcodes <- paste0(info$Row.names,"-3")
+merged <- merge(info, combined.meta.std, by = "barcodes")
+```
+
+```{r}
+BTC13.both <- AddMetaData(BTC13,metadata = merged)
+```
+
+```{r}
+SpatialDimPlot(BTC13.both, group.by = "cell_type_rctd", pt.size.factor = 7, cols = rctd.cols)
+SpatialDimPlot(BTC13.both, group.by = "cell_type_rctd", pt.size.factor = 7)
+```
+
+```{r}
+# save merged object
+save(BTC13.both, file = paste0(obj.dir,"BTC13_RCTD_CODA_seurObj.rda"))
+```
+
+```{r}
+
+```
+
+```{r}
+sessionInfo()
+```
+
